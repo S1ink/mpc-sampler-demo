@@ -503,135 +503,172 @@ function buildSegments(path, junctions, v_max) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DENSE PATH SAMPLER
+// ANALYTICAL VELOCITY PROFILE  +  EXACT TIME-UNIFORM KEYPOINTS
 //
-// Builds a fine sample set used only for the velocity profile sweep.
-// Straights: sampled every STRAIGHT_SAMPLE_M metres.
-// Arcs:      sampled every ARC_ANGULAR_STEP radians — this guarantees full
-//            geometric coverage regardless of radius.  A 2.5 cm arc at 90°
-//            gets 90 samples at 1°/step; arc-length-based sampling would
-//            give just 1 and look completely linear.
+// Mirrors keypoint_planner.hpp plan_keypoints() exactly.
+//
+// Breakpoints at every segment boundary + path end.
+// Forward + backward pass → planned speeds at breakpoints.
+// Between breakpoints: exact 3-zone profile (accel / plateau / decel).
+// s(t) and v(t) have closed-form inverses — no grid, no approximation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STRAIGHT_SAMPLE_M = 0.005;                    // 5 mm on straights
-const ARC_ANGULAR_STEP  = 1.0 * Math.PI / 180;     // 1° on arcs
+// Zone geometry for one interval [s0,s1] with constant v_lim, endpoints v0,v1
+function computeZones(s0, s1, v0, v1, v_lim, a) {
+  const L      = s1 - s0;
+  const s_peak = s0 + (2*a*L + v1*v1 - v0*v0) / (4*a);
+  const v_peak = Math.sqrt(Math.max(0, v0*v0 + 2*a*(s_peak - s0)));
+  if (v_peak <= v_lim + 1e-6) {
+    return { slo: s_peak, shi: s_peak, vf: v_peak };
+  }
+  const slo = s0 + Math.max(0, (v_lim*v_lim - v0*v0) / (2*a));
+  const shi = s1 - Math.max(0, (v_lim*v_lim - v1*v1) / (2*a));
+  return { slo: Math.min(slo,shi), shi: Math.max(slo,shi), vf: v_lim };
+}
 
-function buildDenseSamples(segments, a_max, v_init) {
-  const pts = [];
+// Total traversal time for one interval
+function intervalTime(s0, s1, v0, v1, z, a) {
+  const eps = 1e-9;
+  let t = 0;
+  if (z.slo > s0 + eps) t += (z.vf - v0) / a;
+  if (z.shi > z.slo + eps) t += (z.shi - z.slo) / z.vf;
+  if (s1 > z.shi + eps) t += (z.vf - v1) / a;
+  return t;
+}
+
+// Exact arc-length s and velocity v at time t_into since start of interval
+function sAndVInInterval(t_into, s0, v0, z, a) {
+  const eps = 1e-9;
+  const t_accel = (z.slo > s0 + eps) ? (z.vf - v0) / a : 0;
+  if (t_into <= t_accel + eps) {
+    const t = Math.min(t_into, t_accel);
+    return { s: s0 + v0*t + 0.5*a*t*t, v: v0 + a*t };
+  }
+  let tr = t_into - t_accel;
+  const flat_len = z.shi - z.slo;
+  const t_flat   = (flat_len > eps) ? flat_len / z.vf : 0;
+  if (tr <= t_flat + eps) {
+    const t = Math.min(tr, t_flat);
+    return { s: z.slo + z.vf*t, v: z.vf };
+  }
+  tr -= t_flat;
+  return {
+    s: z.shi + z.vf*tr - 0.5*a*tr*tr,
+    v: Math.max(0, z.vf - a*tr)
+  };
+}
+
+function planKeypoints(segments, cfg) {
+  if (!segments.length) return [];
+  const { a_max: a, v_init, dt } = cfg;
+  const N = segments.length;
+
+  // Build breakpoint positions and caps
+  const bp_s   = new Float64Array(N + 1);
+  const bp_cap = new Float64Array(N + 1);
+  bp_cap[0] = segments[0].v_limit;
   let s = 0;
+  for (let i = 0; i < N; i++) {
+    s += segments[i].is_arc ? segments[i].arc_length : segments[i].length;
+    bp_s[i+1]   = s;
+    bp_cap[i+1] = (i < N-1)
+      ? Math.min(segments[i].v_limit, segments[i+1].v_limit)
+      : 0;
+  }
 
-  for (const seg of segments) {
+  // Forward pass
+  const v_fwd = new Float64Array(N + 1);
+  v_fwd[0] = Math.min(v_init, bp_cap[0]);
+  for (let i = 0; i < N; i++) {
+    const ds = bp_s[i+1] - bp_s[i];
+    v_fwd[i+1] = Math.min(bp_cap[i+1], Math.sqrt(v_fwd[i]*v_fwd[i] + 2*a*ds));
+  }
+
+  // Backward pass
+  const v_bwd = new Float64Array(N + 1);
+  v_bwd[N] = 0;
+  for (let i = N-1; i >= 0; i--) {
+    const ds = bp_s[i+1] - bp_s[i];
+    v_bwd[i] = Math.min(bp_cap[i], Math.sqrt(v_bwd[i+1]*v_bwd[i+1] + 2*a*ds));
+  }
+
+  const v_bp = new Float64Array(N + 1);
+  for (let i = 0; i <= N; i++) v_bp[i] = Math.min(v_fwd[i], v_bwd[i]);
+
+  // Per-interval zone data and total times
+  const zones    = [];
+  const t_totals = new Float64Array(N);
+  let T_total    = 0;
+  for (let i = 0; i < N; i++) {
+    const z = computeZones(bp_s[i], bp_s[i+1], v_bp[i], v_bp[i+1],
+                           segments[i].v_limit, a);
+    zones.push(z);
+    const tt = intervalTime(bp_s[i], bp_s[i+1], v_bp[i], v_bp[i+1], z, a);
+    t_totals[i] = tt;
+    T_total += tt;
+  }
+
+  // geomFromSeg: inline geometry from segment si at local parameter t ∈ [0,1].
+  // bp_s[si] is already the segment start arc-length — no separate accumulator needed.
+  function geomFromSeg(si, t, s_abs) {
+    const seg = segments[si];
     if (!seg.is_arc) {
-      const [dx,dy] = normalize2(seg.p1[0]-seg.p0[0], seg.p1[1]-seg.p0[1]);
-      const heading = Math.atan2(dy, dx);
-      const ns    = Math.max(1, Math.ceil(seg.length / STRAIGHT_SAMPLE_M));
-      const start = pts.length === 0 ? 0 : 1;
-      for (let i = start; i <= ns; i++) {
-        const t = i / ns;
-        pts.push({
-          x: seg.p0[0] + t*(seg.p1[0]-seg.p0[0]),
-          y: seg.p0[1] + t*(seg.p1[1]-seg.p0[1]),
-          heading, curvature: 0,
-          arc_length: s + t*seg.length,
-          speed_limit: seg.v_limit, velocity: 0
-        });
-      }
-      s += seg.length;
+      const [dx, dy] = normalize2(seg.p1[0]-seg.p0[0], seg.p1[1]-seg.p0[1]);
+      return {
+        x: seg.p0[0] + t*(seg.p1[0]-seg.p0[0]),
+        y: seg.p0[1] + t*(seg.p1[1]-seg.p0[1]),
+        heading:     Math.atan2(dy, dx),
+        curvature:   0,
+        arc_length:  s_abs,
+        speed_limit: seg.v_limit
+      };
     } else {
-      // Angle-based sampling — radius-independent geometric fidelity
-      const totalAngle = Math.abs(seg.sweep_angle);
-      const ns    = Math.max(1, Math.ceil(totalAngle / ARC_ANGULAR_STEP));
-      const kappa = seg.sweep_angle > 0 ? 1/seg.radius : -1/seg.radius;
-      const start = pts.length === 0 ? 0 : 1;
-      for (let i = start; i <= ns; i++) {
-        const t   = i / ns;
-        const phi = seg.start_angle + t * seg.sweep_angle;
-        const heading = seg.sweep_angle > 0
-          ? phi + Math.PI/2
-          : phi - Math.PI/2;
-        pts.push({
-          x: seg.center[0] + seg.radius * Math.cos(phi),
-          y: seg.center[1] + seg.radius * Math.sin(phi),
-          heading, curvature: kappa,
-          arc_length: s + t * seg.arc_length,
-          speed_limit: seg.v_limit, velocity: 0
-        });
-      }
-      s += seg.arc_length;
+      const phi = seg.start_angle + t * seg.sweep_angle;
+      return {
+        x: seg.center[0] + seg.radius * Math.cos(phi),
+        y: seg.center[1] + seg.radius * Math.sin(phi),
+        heading:     seg.sweep_angle > 0 ? phi + Math.PI/2 : phi - Math.PI/2,
+        curvature:   seg.sweep_angle > 0 ? 1/seg.radius : -1/seg.radius,
+        arc_length:  s_abs,
+        speed_limit: seg.v_limit
+      };
     }
   }
 
-  if (!pts.length) return pts;
-  const N = pts.length;
-  const v = new Float64Array(N);
+  // Single forward pass — two monotone cursors, no restarts.
+  // cur_iv == segment index since one breakpoint interval == one segment.
+  // bp_s[cur_iv] is the segment start arc-length, eliminating the need
+  // for a separate seg_s0 array or a second cursor.
+  const n_steps = Math.ceil(T_total / dt);
+  const out = [];
+  let t_iv_start = 0;
+  let cur_iv = 0;
 
-  // Forward sweep
-  v[0] = Math.min(v_init, pts[0].speed_limit);
-  for (let i = 1; i < N; i++) {
-    const ds   = pts[i].arc_length - pts[i-1].arc_length;
-    const vfwd = Math.sqrt(v[i-1]*v[i-1] + 2*a_max*ds);
-    v[i] = Math.min(pts[i].speed_limit, vfwd);
+  for (let k = 0; k <= n_steps; k++) {
+    const t_target = Math.min(k * dt, T_total);
+
+    // Advance cursor (monotone)
+    while (cur_iv < N-1 && t_target > t_iv_start + t_totals[cur_iv] - 1e-9) {
+      t_iv_start += t_totals[cur_iv];
+      cur_iv++;
+    }
+
+    const t_into = Math.max(0, Math.min(t_target - t_iv_start, t_totals[cur_iv]));
+    const { s: s_abs, v } = sAndVInInterval(t_into, bp_s[cur_iv], v_bp[cur_iv], zones[cur_iv], a);
+
+    const seg_len = segments[cur_iv].is_arc
+      ? segments[cur_iv].arc_length : segments[cur_iv].length;
+    const t_param = Math.max(0, Math.min(1, (s_abs - bp_s[cur_iv]) / Math.max(seg_len, 1e-9)));
+
+    out.push({ ...geomFromSeg(cur_iv, t_param, s_abs), velocity: v, time: t_target });
   }
-  // Backward sweep — must reach v=0 at end
-  v[N-1] = 0;
-  for (let i = N-2; i >= 0; i--) {
-    const ds   = pts[i+1].arc_length - pts[i].arc_length;
-    const vbwd = Math.sqrt(v[i+1]*v[i+1] + 2*a_max*ds);
-    v[i] = Math.min(v[i], vbwd);
+
+  // Exact endpoint
+  if (!out.length || out[out.length-1].arc_length < bp_s[N] - 1e-6) {
+    out.push({ ...geomFromSeg(N-1, 1, bp_s[N]), velocity: 0, time: T_total });
   }
-  for (let i = 0; i < N; i++) pts[i].velocity = v[i];
-  return pts;
-}
 
-function generateKeypoints(segments, cfg) {
-  return buildDenseSamples(segments, cfg.a_max, cfg.v_init);
-}
-
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SCALE BAR
-// Picks a round world-unit length that renders between 60–120 px wide,
-// draws a clean ruler in the bottom-right corner of the canvas.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function drawScaleBar() {
-  const sc = document.getElementById('scale-bar');
-  const sctx = sc.getContext('2d');
-  const W = sc.width, H = sc.height;
-  sctx.clearRect(0, 0, W, H);
-
-  // Find a "nice" world length whose pixel width is in [60, 120]
-  const candidates = [0.001,0.002,0.005,0.01,0.02,0.05,0.1,0.2,0.5,
-                      1,2,5,10,20,50,100,200,500,1000];
-  let worldLen = candidates[0];
-  for (const c of candidates) {
-    worldLen = c;
-    if (c * view.scale >= 60) break;
-  }
-  const pxLen = worldLen * view.scale;
-
-  // Format label
-  let label;
-  if (worldLen < 1)       label = (worldLen * 100).toFixed(0) + ' cm';
-  else if (worldLen < 1000) label = worldLen.toFixed(worldLen < 10 ? 1 : 0) + ' m';
-  else                    label = (worldLen/1000).toFixed(1) + ' km';
-
-  const x0 = W - pxLen - 8, x1 = W - 8, y = H - 10;
-
-  // Bar
-  sctx.strokeStyle = 'rgba(168,188,216,0.7)';
-  sctx.lineWidth   = 1.5;
-  sctx.beginPath();
-  sctx.moveTo(x0, y - 5); sctx.lineTo(x0, y);
-  sctx.lineTo(x1, y);
-  sctx.lineTo(x1, y - 5);
-  sctx.stroke();
-
-  // Label
-  sctx.fillStyle = 'rgba(168,188,216,0.7)';
-  sctx.font      = '9px JetBrains Mono';
-  sctx.textAlign = 'center';
-  sctx.fillText(label, (x0 + x1) / 2, y - 8);
+  return out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -670,78 +707,6 @@ function getPlannerCfg() {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TIME-UNIFORM RESAMPLING
-//
-// Takes the dense arc-length-uniform keypoints (with velocity already set by
-// the forward-backward sweep) and re-samples them onto a uniform time grid
-// with step dt.  This is what actually gets exported to the MPC controller —
-// each step represents one prediction horizon timestep.
-//
-// Method:
-//   1. Walk the dense samples accumulating time: t_i = t_{i-1} + ds / v_avg
-//      (use the average of consecutive velocities; guard against v≈0 at the
-//       endpoints by clamping the denominator).
-//   2. For each target time k·dt, binary-search to find the bracketing samples
-//      and linearly interpolate position, heading, curvature, and velocity.
-// ─────────────────────────────────────────────────────────────────────────────
-function resampleByTime(densePts, dt) {
-  if (densePts.length < 2 || dt <= 0) return densePts;
-
-  // Build cumulative time array
-  const N = densePts.length;
-  const t_arr = new Float64Array(N);
-  t_arr[0] = 0;
-  for (let i = 1; i < N; i++) {
-    const ds   = densePts[i].arc_length - densePts[i-1].arc_length;
-    const vavg = Math.max((densePts[i].velocity + densePts[i-1].velocity) * 0.5, 1e-6);
-    t_arr[i] = t_arr[i-1] + ds / vavg;
-  }
-  const T_total = t_arr[N-1];
-
-  // Interpolation helper: find left index via linear scan from hint
-  function interpAt(t_target) {
-    // clamp
-    if (t_target <= 0)       return { ...densePts[0],   time: 0 };
-    if (t_target >= T_total) return { ...densePts[N-1], time: T_total };
-
-    // binary search
-    let lo = 0, hi = N-1;
-    while (hi - lo > 1) {
-      const mid = (lo+hi) >> 1;
-      if (t_arr[mid] <= t_target) lo = mid; else hi = mid;
-    }
-    const alpha = (t_target - t_arr[lo]) / Math.max(t_arr[hi] - t_arr[lo], 1e-12);
-    const a = densePts[lo], b = densePts[hi];
-
-    // Heading interpolation: handle wraparound
-    let dh = b.heading - a.heading;
-    if (dh >  Math.PI) dh -= 2*Math.PI;
-    if (dh < -Math.PI) dh += 2*Math.PI;
-
-    return {
-      x:           a.x         + alpha*(b.x - a.x),
-      y:           a.y         + alpha*(b.y - a.y),
-      heading:     a.heading   + alpha*dh,
-      curvature:   a.curvature + alpha*(b.curvature - a.curvature),
-      arc_length:  a.arc_length+ alpha*(b.arc_length - a.arc_length),
-      speed_limit: a.speed_limit + alpha*(b.speed_limit - a.speed_limit),
-      velocity:    a.velocity  + alpha*(b.velocity - a.velocity),
-      time:        t_target,
-    };
-  }
-
-  const out = [];
-  const nSteps = Math.ceil(T_total / dt);
-  for (let k = 0; k <= nSteps; k++) {
-    out.push(interpAt(k * dt));
-  }
-  // Always include the exact endpoint at rest
-  if (out[out.length-1].time < T_total - 1e-9) {
-    out.push(interpAt(T_total));
-  }
-  return out;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CANVAS SETUP
@@ -877,6 +842,48 @@ function drawWaypoints() {
     ctx.fillText(i, cx+9, cy-5);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCALE BAR
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawScaleBar() {
+  const sc = document.getElementById('scale-bar');
+  if (!sc) return;
+  const sctx = sc.getContext('2d');
+  const W = sc.width, H = sc.height;
+  sctx.clearRect(0, 0, W, H);
+
+  const candidates = [0.001,0.002,0.005,0.01,0.02,0.05,0.1,0.2,0.5,
+                      1,2,5,10,20,50,100,200,500,1000];
+  let worldLen = candidates[0];
+  for (const c of candidates) {
+    worldLen = c;
+    if (c * view.scale >= 60) break;
+  }
+  const pxLen = worldLen * view.scale;
+
+  let label;
+  if (worldLen < 1)        label = (worldLen * 100).toFixed(0) + ' cm';
+  else if (worldLen < 1000) label = worldLen.toFixed(worldLen < 10 ? 1 : 0) + ' m';
+  else                     label = (worldLen/1000).toFixed(1) + ' km';
+
+  const x0 = W - pxLen - 8, x1 = W - 8, y = H - 10;
+
+  sctx.strokeStyle = 'rgba(168,188,216,0.7)';
+  sctx.lineWidth   = 1.5;
+  sctx.beginPath();
+  sctx.moveTo(x0, y - 5); sctx.lineTo(x0, y);
+  sctx.lineTo(x1, y);
+  sctx.lineTo(x1, y - 5);
+  sctx.stroke();
+
+  sctx.fillStyle = 'rgba(168,188,216,0.7)';
+  sctx.font      = '9px JetBrains Mono';
+  sctx.textAlign = 'center';
+  sctx.fillText(label, (x0 + x1) / 2, y - 8);
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VELOCITY CHART
@@ -1043,8 +1050,7 @@ function recompute() {
     const cfg = getPlannerCfg();
     smoothResult = smooth(waypoints, c);
     segments     = buildSegments(waypoints, smoothResult.junctions, c.v_max);
-    const densePts = generateKeypoints(segments, cfg);  // fine arc-length grid
-    keypoints      = resampleByTime(densePts, cfg.dt);  // uniform time grid
+    keypoints    = planKeypoints(segments, cfg);
   }
   draw();
   drawVelChart();
