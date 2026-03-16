@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Path Smoother · MPC Keypoint Planner</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;1,300&family=Barlow+Condensed:wght@300;400;500;600;700&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root {
+  --bg:     #060a10;
+  --bg1:    #0a0f1a;
+  --bg2:    #0f1624;
+  --bg3:    #161e30;
+  --border: #1c2540;
+  --muted:  #2a3555;
+  --dim:    #4a5e88;
+  --label:  #6b7fa8;
+  --text:   #a8bcd8;
+  --bright: #d0e0f8;
+  --accent: #3d8ef0;
+  --green:  #2ecb88;
+  --orange: #e8953a;
+  --yellow: #f0c84a;
+  --red:    #e05555;
+  --pink:   #d060c0;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Barlow Condensed', sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: 44px 1fr;
+  grid-template-columns: 300px 1fr 280px;
+  grid-template-areas:
+    "header header header"
+    "left   canvas right";
+  overflow: hidden;
+}
+
+/* ── Header ───────────────────────────────────── */
+header {
+  grid-area: header;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  gap: 20px;
+}
+header h1 {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--bright);
+}
+header h1 span { color: var(--accent); }
+.hbadge {
+  font-size: 10px;
+  letter-spacing: .08em;
+  color: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 7px;
+}
+header .hright { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+.pill {
+  font-size: 10px; letter-spacing: .07em;
+  padding: 3px 9px; border-radius: 2px;
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--label); cursor: pointer; transition: all .15s;
+  font-family: var(--mono);
+}
+.pill:hover { border-color: var(--accent); color: var(--accent); }
+.pill.active { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: var(--accent); color: var(--accent); }
+
+/* ── Left panel ───────────────────────────────── */
+#left {
+  grid-area: left;
+  background: var(--bg1);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.section {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 14px;
+}
+.section-title {
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 10px;
+  display: flex; align-items: center; gap: 6px;
+}
+.section-title::after { content:''; flex:1; height:1px; background: var(--border); }
+
+.row { display: flex; align-items: center; margin-bottom: 8px; gap: 8px; }
+.row label { color: var(--label); font-size: 11px; min-width: 90px; flex-shrink: 0; }
+.row input[type=range] {
+  flex: 1; accent-color: var(--accent);
+  cursor: pointer;
+}
+.row .val {
+  min-width: 46px; text-align: right;
+  color: var(--bright); font-size: 11px;
+  background: transparent; border: none; outline: none;
+  font-family: var(--mono); padding: 0; cursor: text;
+  border-bottom: 1px solid transparent;
+  transition: border-color .15s, color .15s;
+  width: 52px;
+}
+.row .val:hover  { border-bottom-color: var(--muted); }
+.row .val:focus  { border-bottom-color: var(--accent); color: var(--accent); }
+
+.row input[type=range] { -webkit-appearance: none; height: 3px; background: var(--bg3); border-radius: 2px; outline: none; }
+.row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px;
+  border-radius: 50%; background: var(--accent);
+  cursor: pointer; transition: transform .1s;
+}
+.row input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+
+.btn {
+  width: 100%; padding: 8px 0;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid var(--accent);
+  border-radius: 3px; color: var(--accent);
+  font-family: var(--mono); font-size: 12px;
+  cursor: pointer; letter-spacing: .06em;
+  transition: all .15s;
+}
+.btn:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.btn.danger {
+  border-color: var(--red);
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+.btn.danger:hover { background: color-mix(in srgb, var(--red) 22%, transparent); }
+
+.hint {
+  color: var(--muted); font-size: 10px; line-height: 1.6;
+  padding: 0 14px 10px;
+}
+
+/* waypoint list */
+#wp-list { list-style: none; padding: 0; margin: 0; }
+#wp-list li {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 14px;
+  font-size: 11px; color: var(--label);
+  cursor: pointer; transition: background .1s;
+}
+#wp-list li:hover { background: var(--bg3); }
+#wp-list li.selected { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--bright); }
+#wp-list li .idx { color: var(--muted); min-width: 22px; font-size: 10px; }
+#wp-list li .coords { flex:1; }
+#wp-list li .del { color: var(--muted); font-size: 13px; padding: 0 3px; }
+#wp-list li .del:hover { color: var(--red); }
+
+/* ── Canvas ───────────────────────────────────── */
+#canvas-wrap {
+  grid-area: canvas;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg);
+  background-image:
+    linear-gradient(var(--bg2) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bg2) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+canvas { display: block; cursor: crosshair; }
+
+/* overlay instructions */
+#scale-bar {
+  position: absolute; bottom: 14px; right: 14px;
+  pointer-events: none;
+}
+
+#overlay-hint {
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  background: color-mix(in srgb, var(--bg1) 85%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 10px; letter-spacing: .06em; color: var(--dim);
+  pointer-events: none; white-space: nowrap;
+}
+
+/* ── Right panel ──────────────────────────────── */
+#right {
+  grid-area: right;
+  background: var(--bg1);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+
+/* velocity chart */
+#vel-chart-wrap {
+  padding: 10px 12px 4px;
+}
+#vel-chart-title {
+  font-family: var(--sans); font-size: 10px;
+  letter-spacing: .13em; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 6px;
+}
+#vel-canvas { width: 100%; display: block; }
+
+/* stats table */
+.stats-table { width: 100%; border-collapse: collapse; }
+.stats-table tr { border-bottom: 1px solid var(--border); }
+.stats-table td { padding: 5px 10px; font-size: 11px; }
+.stats-table td:first-child { color: var(--label); }
+.stats-table td:last-child { color: var(--bright); text-align: right; }
+
+/* keypoint list */
+#kp-scroll {
+  flex: 1; overflow-y: auto;
+  font-size: 10px; color: var(--label);
+}
+#kp-table { width: 100%; border-collapse: collapse; }
+#kp-table thead td {
+  font-family: var(--sans); font-size: 9px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted);
+  padding: 5px 6px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--bg1);
+}
+#kp-table tbody tr { border-bottom: 1px solid color-mix(in srgb,var(--border) 50%, transparent); }
+#kp-table tbody tr:hover { background: var(--bg3); }
+#kp-table tbody td { padding: 3px 6px; color: var(--text); }
+#kp-table tbody td.vel { color: var(--green); font-weight: 500; }
+#kp-table tbody td.lim { color: var(--orange); }
+
+/* scrollbar */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--bg1); }
+::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
+
+/* legend */
+.legend { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px; font-size: 10px; }
+.leg { display: flex; align-items: center; gap: 5px; color: var(--label); }
+.leg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink:0; }
+.leg-line { width: 14px; height: 2px; flex-shrink:0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Path<span>Smoother</span> <span style="color:var(--dim)">·</span> MPC Keypoint Planner</h1>
+  <span class="hbadge">DIFF-DRIVE</span>
+  <div class="hright">
+    <button class="pill active" id="btn-show-raw">Raw Path</button>
+    <button class="pill active" id="btn-show-smooth">Smooth Path</button>
+    <button class="pill active" id="btn-show-kp">Keypoints</button>
+    <button class="pill active" id="btn-show-vel">Speed</button>
+  </div>
+</header>
+
+<!-- LEFT -->
+<aside id="left">
+  <div class="section">
+    <div class="section-title">Robot Constraints</div>
+    <div class="row"><label>v<sub>max</sub> (m/s)</label>
+      <input type="range" id="sl-vmax" min="0.2" max="5" step="0.1" value="2.0">
+      <input type="text" class="val" id="lv-vmax" value="2.0"></div>
+    <div class="row"><label>ω<sub>max</sub> (rad/s)</label>
+      <input type="range" id="sl-omax" min="0.1" max="6" step="0.1" value="1.5">
+      <input type="text" class="val" id="lv-omax" value="1.5"></div>
+    <div class="row"><label>k<sub>max</sub> (m)</label>
+      <input type="range" id="sl-kmax" min="0.05" max="2" step="0.05" value="0.5">
+      <input type="text" class="val" id="lv-kmax" value="0.50"></div>
+    <div class="row"><label>a<sub>max</sub> (m/s²)</label>
+      <input type="range" id="sl-amax" min="0.1" max="5" step="0.1" value="1.0">
+      <input type="text" class="val" id="lv-amax" value="1.0"></div>
+    <div class="row"><label>v<sub>init</sub> (m/s)</label>
+      <input type="range" id="sl-vinit" min="0" max="4" step="0.1" value="0">
+      <input type="text" class="val" id="lv-vinit" value="0.0"></div>
+    <div class="row"><label>MPC dt (s)</label>
+      <input type="range" id="sl-dt" min="0.02" max="0.5" step="0.01" value="0.1">
+      <input type="text" class="val" id="lv-dt" value="0.10"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Waypoints</div>
+    <ul id="wp-list"></ul>
+  </div>
+  <div style="padding:10px 14px; display:flex; flex-direction:column; gap:7px;">
+    <button class="btn" id="btn-load-demo">Load Demo Path</button>
+    <button class="btn danger" id="btn-clear">Clear Waypoints</button>
+  </div>
+  <p class="hint">Click canvas to place waypoints. Drag to move. Right-click to delete. Need ≥ 3 points.</p>
+
+  <div class="section" style="margin-top:auto">
+    <div class="section-title">Legend</div>
+    <div class="legend">
+      <div class="leg"><div class="leg-line" style="background:var(--muted)"></div> Raw</div>
+      <div class="leg"><div class="leg-line" style="background:var(--accent)"></div> Smooth</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--green)"></div> Keypoint</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--yellow)"></div> Waypoint</div>
+      <div class="leg"><div class="leg-line" style="background:var(--orange)"></div> v limit</div>
+      <div class="leg"><div class="leg-line" style="background:var(--green)"></div> v plan</div>
+    </div>
+  </div>
+</aside>
+
+<!-- CANVAS -->
+<div id="canvas-wrap">
+  <canvas id="main-canvas"></canvas>
+  <canvas id="scale-bar" width="120" height="32"></canvas>
+  <div id="overlay-hint">Click to place waypoints · Drag to move · Right-click to delete</div>
+</div>
+
+<!-- RIGHT -->
+<aside id="right">
+  <div id="vel-chart-wrap">
+    <div id="vel-chart-title">Velocity Profile  <span style="color:var(--muted);font-size:9px">t [s] →  (blue ticks = MPC steps)</span></div>
+    <canvas id="vel-canvas" height="120"></canvas>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Statistics</div>
+    <table class="stats-table" id="stats-table">
+      <tr><td>Total length</td><td id="st-len">—</td></tr>
+      <tr><td>Junctions</td><td id="st-junc">—</td></tr>
+      <tr><td>Keypoints</td><td id="st-kp">—</td></tr>
+      <tr><td>Est. travel time</td><td id="st-time">—</td></tr>
+      <tr><td>Max speed</td><td id="st-vmax">—</td></tr>
+    </table>
+  </div>
+
+  <div class="section-title" style="padding:8px 12px 0; font-family:var(--sans); font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim);">
+    Keypoint Table
+  </div>
+  <div id="kp-scroll">
+    <table id="kp-table">
+      <thead><tr>
+        <td>#</td><td>t (s)</td><td>κ (m⁻¹)</td><td class="lim">v<sub>lim</sub></td><td class="vel">v</td>
+      </tr></thead>
+      <tbody id="kp-tbody"></tbody>
+    </table>
+  </div>
+</aside>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// MATH UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
+const clamp = (v,lo,hi) => Math.max(lo, Math.min(hi, v));
+const norm2 = (ax,ay) => Math.sqrt(ax*ax+ay*ay);
+
+function normalize2(ax, ay) {
+  const n = norm2(ax,ay);
+  return n < 1e-12 ? [0,0] : [ax/n, ay/n];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATH SMOOTHER  (mirrors path_smoother.hpp)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function rho(theta) { const a = Math.cos(theta*.5); return a/(1-a); }
+function gamma_fn(theta) { return Math.tan(theta*.5); }
+function k_from_rl(r, l) { return (l*l)/(Math.sqrt(r*r+l*l)+r); }
+
+function smooth(path, constraints) {
+  const { k_max, omega_max, v_max } = constraints;
+  const r_sat = v_max / omega_max;
+  const n = path.length;
+  if (n < 3) return { junctions: [] };
+  const m = n - 2;
+
+  // segment lengths
+  const seg_len = [];
+  for (let i = 0; i < n-1; i++) {
+    seg_len.push(norm2(path[i+1][0]-path[i][0], path[i+1][1]-path[i][1]));
+  }
+
+  const theta = new Float64Array(m);
+  const gam   = new Float64Array(m);
+  const r_ub  = new Float64Array(m);
+  const ST    = 1e-4;
+
+  for (let j = 0; j < m; j++) {
+    const [dx_in, dy_in]  = normalize2(path[j+1][0]-path[j][0],   path[j+1][1]-path[j][1]);
+    const [dx_out,dy_out] = normalize2(path[j+2][0]-path[j+1][0], path[j+2][1]-path[j+1][1]);
+    const cos_t = clamp(dx_in*dx_out + dy_in*dy_out, -1, 1);
+    theta[j] = Math.acos(cos_t);
+
+    if (theta[j] < ST || theta[j] > Math.PI - ST) { gam[j]=0; r_ub[j]=0; continue; }
+
+    gam[j] = gamma_fn(theta[j]);
+    r_ub[j] = Math.min(k_max * rho(theta[j]), r_sat);
+
+    if (j === 0)   r_ub[j] = Math.min(r_ub[j], seg_len[0]   / gam[j]);
+    if (j === m-1) r_ub[j] = Math.min(r_ub[j], seg_len[n-2] / gam[j]);
+  }
+
+  const r = Float64Array.from(r_ub);
+
+  function enforce(jl, jr, si) {
+    const budget = seg_len[si];
+    const ll = r[jl]*gam[jl], lr = r[jr]*gam[jr];
+    if (ll+lr <= budget) return;
+    const half = budget*.5;
+    if (ll <= half) {
+      if (gam[jr]>0) r[jr] = Math.min(r[jr], (budget-ll)/gam[jr]);
+    } else if (lr <= half) {
+      if (gam[jl]>0) r[jl] = Math.min(r[jl], (budget-lr)/gam[jl]);
+    } else {
+      if (gam[jl]>0) r[jl] = Math.min(r[jl], half/gam[jl]);
+      if (gam[jr]>0) r[jr] = Math.min(r[jr], half/gam[jr]);
+    }
+  }
+
+  for (let pass = 0; pass < 5; pass++) {
+    for (let j = 0; j < m-1; j++) enforce(j, j+1, j+1);
+    for (let j = m-2; j >= 0; j--) enforce(j, j+1, j+1);
+  }
+
+  const junctions = [];
+  for (let j = 0; j < m; j++) {
+    const l = r[j]*gam[j];
+    const k = theta[j] < ST ? 0 : k_from_rl(r[j], l);
+    const v = theta[j] < ST ? v_max : Math.min(v_max, r[j]*omega_max);
+    junctions.push({ theta: theta[j], r: r[j], l, k, v });
+  }
+  return { junctions };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEGMENT BUILDER  (mirrors keypoint_planner.hpp → build_segments)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildSegments(path, junctions, v_max) {
+  const n = path.length, m = n-2;
+  const ST = 1e-4;
+  const segments = [];
+
+  // pre-compute arc geometry
+  const arcs = [];
+  for (let j = 0; j < m; j++) {
+    const jn = junctions[j];
+    if (jn.r < 1e-9 || jn.theta < ST) { arcs.push(null); continue; }
+
+    const P  = path[j+1];
+    const [dix, diy] = normalize2(path[j+1][0]-path[j][0],   path[j+1][1]-path[j][1]);
+    const [dox, doy] = normalize2(path[j+2][0]-path[j+1][0], path[j+2][1]-path[j+1][1]);
+
+    const T_in  = [P[0] - jn.l*dix, P[1] - jn.l*diy];
+    const T_out = [P[0] + jn.l*dox, P[1] + jn.l*doy];
+
+    const cross_z = dix*doy - diy*dox;
+    const cw = cross_z > 0;
+
+    // normal toward centre
+    const nx = cw ? -diy :  diy;
+    const ny = cw ?  dix : -dix;
+
+    const C = [T_in[0] + jn.r*nx, T_in[1] + jn.r*ny];
+    const sa    = Math.atan2(T_in[1]-C[1], T_in[0]-C[0]);
+    const sweep = cw ? jn.theta : -jn.theta;
+
+    arcs.push({ C, T_in, T_out, r: jn.r, sa, sweep,
+                arc_length: jn.r*jn.theta, v_lim: jn.v });
+  }
+
+  let prev = path[0];
+
+  for (let j = 0; j < m; j++) {
+    const arc = arcs[j];
+    const dst = arc ? arc.T_in : path[j+1];
+    const d   = norm2(dst[0]-prev[0], dst[1]-prev[1]);
+
+    if (d > 1e-6) {
+      segments.push({ is_arc:false, p0:prev, p1:dst, length:d, v_limit:v_max });
+    }
+    if (arc) {
+      segments.push({ is_arc:true, center:arc.C, radius:arc.r,
+                      start_angle:arc.sa, sweep_angle:arc.sweep,
+                      arc_length:arc.arc_length, v_limit:arc.v_lim });
+      prev = arc.T_out;
+    } else {
+      prev = path[j+1];
+    }
+  }
+  // final straight
+  const d = norm2(path[n-1][0]-prev[0], path[n-1][1]-prev[1]);
+  if (d > 1e-6) {
+    segments.push({ is_arc:false, p0:prev, p1:path[n-1], length:d, v_limit:v_max });
+  }
+  return segments;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DENSE PATH SAMPLER
+//
+// Builds a fine sample set used only for the velocity profile sweep.
+// Straights: sampled every STRAIGHT_SAMPLE_M metres.
+// Arcs:      sampled every ARC_ANGULAR_STEP radians — this guarantees full
+//            geometric coverage regardless of radius.  A 2.5 cm arc at 90°
+//            gets 90 samples at 1°/step; arc-length-based sampling would
+//            give just 1 and look completely linear.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STRAIGHT_SAMPLE_M = 0.005;                    // 5 mm on straights
+const ARC_ANGULAR_STEP  = 1.0 * Math.PI / 180;     // 1° on arcs
+
+function buildDenseSamples(segments, a_max, v_init) {
+  const pts = [];
+  let s = 0;
+
+  for (const seg of segments) {
+    if (!seg.is_arc) {
+      const [dx,dy] = normalize2(seg.p1[0]-seg.p0[0], seg.p1[1]-seg.p0[1]);
+      const heading = Math.atan2(dy, dx);
+      const ns    = Math.max(1, Math.ceil(seg.length / STRAIGHT_SAMPLE_M));
+      const start = pts.length === 0 ? 0 : 1;
+      for (let i = start; i <= ns; i++) {
+        const t = i / ns;
+        pts.push({
+          x: seg.p0[0] + t*(seg.p1[0]-seg.p0[0]),
+          y: seg.p0[1] + t*(seg.p1[1]-seg.p0[1]),
+          heading, curvature: 0,
+          arc_length: s + t*seg.length,
+          speed_limit: seg.v_limit, velocity: 0
+        });
+      }
+      s += seg.length;
+    } else {
+      // Angle-based sampling — radius-independent geometric fidelity
+      const totalAngle = Math.abs(seg.sweep_angle);
+      const ns    = Math.max(1, Math.ceil(totalAngle / ARC_ANGULAR_STEP));
+      const kappa = seg.sweep_angle > 0 ? 1/seg.radius : -1/seg.radius;
+      const start = pts.length === 0 ? 0 : 1;
+      for (let i = start; i <= ns; i++) {
+        const t   = i / ns;
+        const phi = seg.start_angle + t * seg.sweep_angle;
+        const heading = seg.sweep_angle > 0
+          ? phi + Math.PI/2
+          : phi - Math.PI/2;
+        pts.push({
+          x: seg.center[0] + seg.radius * Math.cos(phi),
+          y: seg.center[1] + seg.radius * Math.sin(phi),
+          heading, curvature: kappa,
+          arc_length: s + t * seg.arc_length,
+          speed_limit: seg.v_limit, velocity: 0
+        });
+      }
+      s += seg.arc_length;
+    }
+  }
+
+  if (!pts.length) return pts;
+  const N = pts.length;
+  const v = new Float64Array(N);
+
+  // Forward sweep
+  v[0] = Math.min(v_init, pts[0].speed_limit);
+  for (let i = 1; i < N; i++) {
+    const ds   = pts[i].arc_length - pts[i-1].arc_length;
+    const vfwd = Math.sqrt(v[i-1]*v[i-1] + 2*a_max*ds);
+    v[i] = Math.min(pts[i].speed_limit, vfwd);
+  }
+  // Backward sweep — must reach v=0 at end
+  v[N-1] = 0;
+  for (let i = N-2; i >= 0; i--) {
+    const ds   = pts[i+1].arc_length - pts[i].arc_length;
+    const vbwd = Math.sqrt(v[i+1]*v[i+1] + 2*a_max*ds);
+    v[i] = Math.min(v[i], vbwd);
+  }
+  for (let i = 0; i < N; i++) pts[i].velocity = v[i];
+  return pts;
+}
+
+function generateKeypoints(segments, cfg) {
+  return buildDenseSamples(segments, cfg.a_max, cfg.v_init);
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCALE BAR
+// Picks a round world-unit length that renders between 60–120 px wide,
+// draws a clean ruler in the bottom-right corner of the canvas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawScaleBar() {
+  const sc = document.getElementById('scale-bar');
+  const sctx = sc.getContext('2d');
+  const W = sc.width, H = sc.height;
+  sctx.clearRect(0, 0, W, H);
+
+  // Find a "nice" world length whose pixel width is in [60, 120]
+  const candidates = [0.001,0.002,0.005,0.01,0.02,0.05,0.1,0.2,0.5,
+                      1,2,5,10,20,50,100,200,500,1000];
+  let worldLen = candidates[0];
+  for (const c of candidates) {
+    worldLen = c;
+    if (c * view.scale >= 60) break;
+  }
+  const pxLen = worldLen * view.scale;
+
+  // Format label
+  let label;
+  if (worldLen < 1)       label = (worldLen * 100).toFixed(0) + ' cm';
+  else if (worldLen < 1000) label = worldLen.toFixed(worldLen < 10 ? 1 : 0) + ' m';
+  else                    label = (worldLen/1000).toFixed(1) + ' km';
+
+  const x0 = W - pxLen - 8, x1 = W - 8, y = H - 10;
+
+  // Bar
+  sctx.strokeStyle = 'rgba(168,188,216,0.7)';
+  sctx.lineWidth   = 1.5;
+  sctx.beginPath();
+  sctx.moveTo(x0, y - 5); sctx.lineTo(x0, y);
+  sctx.lineTo(x1, y);
+  sctx.lineTo(x1, y - 5);
+  sctx.stroke();
+
+  // Label
+  sctx.fillStyle = 'rgba(168,188,216,0.7)';
+  sctx.font      = '9px JetBrains Mono';
+  sctx.textAlign = 'center';
+  sctx.fillText(label, (x0 + x1) / 2, y - 8);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+
+let waypoints = [];   // [[wx,wy], ...]  world coords (metres)
+let smoothResult = null;
+let segments     = [];
+let keypoints    = [];
+
+let show = { raw:true, smooth:true, kp:true, vel:true };
+
+// view transform: canvas ↔ world
+let view = { ox:0, oy:0, scale:80 };  // world→canvas: cx = ox + wx*scale
+
+function w2c(wx, wy) { return [view.ox + wx*view.scale, view.oy + wy*view.scale]; }
+function c2w(cx, cy) { return [(cx-view.ox)/view.scale, (cy-view.oy)/view.scale]; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTRAINTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getConstraints() {
+  return {
+    v_max:     parseFloat(document.getElementById('sl-vmax').value),
+    omega_max: parseFloat(document.getElementById('sl-omax').value),
+    k_max:     parseFloat(document.getElementById('sl-kmax').value),
+  };
+}
+function getPlannerCfg() {
+  return {
+    a_max:  parseFloat(document.getElementById('sl-amax').value),
+    v_init: parseFloat(document.getElementById('sl-vinit').value),
+    dt:     parseFloat(document.getElementById('sl-dt').value),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIME-UNIFORM RESAMPLING
+//
+// Takes the dense arc-length-uniform keypoints (with velocity already set by
+// the forward-backward sweep) and re-samples them onto a uniform time grid
+// with step dt.  This is what actually gets exported to the MPC controller —
+// each step represents one prediction horizon timestep.
+//
+// Method:
+//   1. Walk the dense samples accumulating time: t_i = t_{i-1} + ds / v_avg
+//      (use the average of consecutive velocities; guard against v≈0 at the
+//       endpoints by clamping the denominator).
+//   2. For each target time k·dt, binary-search to find the bracketing samples
+//      and linearly interpolate position, heading, curvature, and velocity.
+// ─────────────────────────────────────────────────────────────────────────────
+function resampleByTime(densePts, dt) {
+  if (densePts.length < 2 || dt <= 0) return densePts;
+
+  // Build cumulative time array
+  const N = densePts.length;
+  const t_arr = new Float64Array(N);
+  t_arr[0] = 0;
+  for (let i = 1; i < N; i++) {
+    const ds   = densePts[i].arc_length - densePts[i-1].arc_length;
+    const vavg = Math.max((densePts[i].velocity + densePts[i-1].velocity) * 0.5, 1e-6);
+    t_arr[i] = t_arr[i-1] + ds / vavg;
+  }
+  const T_total = t_arr[N-1];
+
+  // Interpolation helper: find left index via linear scan from hint
+  function interpAt(t_target) {
+    // clamp
+    if (t_target <= 0)       return { ...densePts[0],   time: 0 };
+    if (t_target >= T_total) return { ...densePts[N-1], time: T_total };
+
+    // binary search
+    let lo = 0, hi = N-1;
+    while (hi - lo > 1) {
+      const mid = (lo+hi) >> 1;
+      if (t_arr[mid] <= t_target) lo = mid; else hi = mid;
+    }
+    const alpha = (t_target - t_arr[lo]) / Math.max(t_arr[hi] - t_arr[lo], 1e-12);
+    const a = densePts[lo], b = densePts[hi];
+
+    // Heading interpolation: handle wraparound
+    let dh = b.heading - a.heading;
+    if (dh >  Math.PI) dh -= 2*Math.PI;
+    if (dh < -Math.PI) dh += 2*Math.PI;
+
+    return {
+      x:           a.x         + alpha*(b.x - a.x),
+      y:           a.y         + alpha*(b.y - a.y),
+      heading:     a.heading   + alpha*dh,
+      curvature:   a.curvature + alpha*(b.curvature - a.curvature),
+      arc_length:  a.arc_length+ alpha*(b.arc_length - a.arc_length),
+      speed_limit: a.speed_limit + alpha*(b.speed_limit - a.speed_limit),
+      velocity:    a.velocity  + alpha*(b.velocity - a.velocity),
+      time:        t_target,
+    };
+  }
+
+  const out = [];
+  const nSteps = Math.ceil(T_total / dt);
+  for (let k = 0; k <= nSteps; k++) {
+    out.push(interpAt(k * dt));
+  }
+  // Always include the exact endpoint at rest
+  if (out[out.length-1].time < T_total - 1e-9) {
+    out.push(interpAt(T_total));
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CANVAS SETUP
+// ─────────────────────────────────────────────────────────────────────────────
+
+const wrap   = document.getElementById('canvas-wrap');
+const canvas = document.getElementById('main-canvas');
+const ctx    = canvas.getContext('2d');
+
+function resize() {
+  canvas.width  = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+  draw();
+}
+window.addEventListener('resize', resize);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW
+// ─────────────────────────────────────────────────────────────────────────────
+
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  if (waypoints.length < 2) {
+    if (waypoints.length === 1) drawWaypoints();
+    return;
+  }
+
+  // ── Raw polyline ──
+  if (show.raw) {
+    ctx.beginPath();
+    ctx.setLineDash([4,5]);
+    ctx.strokeStyle = '#2a3555';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < waypoints.length; i++) {
+      const [cx,cy] = w2c(...waypoints[i]);
+      i===0 ? ctx.moveTo(cx,cy) : ctx.lineTo(cx,cy);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // ── Smooth path (arc + straight segments) ──
+  if (show.smooth && segments.length) {
+    ctx.beginPath();
+    ctx.strokeStyle = '#3d8ef0';
+    ctx.lineWidth   = 2.5;
+
+    for (const seg of segments) {
+      if (!seg.is_arc) {
+        const [x0,y0] = w2c(...seg.p0);
+        const [x1,y1] = w2c(...seg.p1);
+        ctx.moveTo(x0,y0);
+        ctx.lineTo(x1,y1);
+      } else {
+        const [cx,cy] = w2c(...seg.center);
+        const r       = seg.radius * view.scale;
+        const a0      = seg.start_angle;
+        const a1      = a0 + seg.sweep_angle;
+        const acw     = seg.sweep_angle > 0;
+        // canvas arc: anticlockwise flag is opposite of our convention
+        ctx.moveTo(cx + r*Math.cos(a0), cy + r*Math.sin(a0));
+        ctx.arc(cx, cy, r, a0, a1, !acw);
+      }
+    }
+    ctx.stroke();
+  }
+
+  // ── Velocity-coloured keypoints ──
+  if (show.kp && keypoints.length) {
+    const vmax = getConstraints().v_max;
+    for (const kp of keypoints) {
+      const [cx,cy] = w2c(kp.x, kp.y);
+      const t       = kp.velocity / vmax;  // 0→1
+      // colour: blue(slow) → green(medium) → orange(fast)
+      const r = Math.round(lerp(0x3d, 0xe8, t*t));
+      const g = Math.round(lerp(0x8e, 0x95, t));
+      const b = Math.round(lerp(0xf0, 0x3a, t));
+
+      if (show.vel) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3.5, 0, 2*Math.PI);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2.5, 0, 2*Math.PI);
+        ctx.fillStyle = '#2ecb88';
+        ctx.fill();
+      }
+
+      // heading tick
+      if (show.smooth) {
+        const hlen = 7;
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(${r},${g},${b},0.55)`;
+        ctx.lineWidth = 1;
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + hlen*Math.cos(kp.heading), cy + hlen*Math.sin(kp.heading));
+        ctx.stroke();
+      }
+    }
+  }
+
+  drawWaypoints();
+  drawScaleBar();
+}
+
+function lerp(a, b, t) { return a + (b-a)*clamp(t,0,1); }
+
+function drawWaypoints() {
+  for (let i = 0; i < waypoints.length; i++) {
+    const [cx,cy] = w2c(...waypoints[i]);
+    const isFirst = i===0, isLast = i===waypoints.length-1;
+
+    // outer ring
+    ctx.beginPath();
+    ctx.arc(cx, cy, 7, 0, 2*Math.PI);
+    ctx.strokeStyle = isFirst ? '#2ecb88' : isLast ? '#e05555' : '#f0c84a';
+    ctx.lineWidth   = 1.5;
+    ctx.stroke();
+
+    // inner fill
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, 2*Math.PI);
+    ctx.fillStyle = isFirst ? 'rgba(46,203,136,.35)' : isLast ? 'rgba(224,85,85,.35)' : 'rgba(240,200,74,.35)';
+    ctx.fill();
+
+    // index label
+    ctx.fillStyle = '#6b7fa8';
+    ctx.font = '9px JetBrains Mono';
+    ctx.fillText(i, cx+9, cy-5);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VELOCITY CHART
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawVelChart() {
+  const vc   = document.getElementById('vel-canvas');
+  const vctx = vc.getContext('2d');
+  vc.width   = vc.parentElement.clientWidth - 24;
+  const W = vc.width, H = vc.height;
+
+  vctx.clearRect(0,0,W,H);
+
+  if (!keypoints.length) {
+    vctx.fillStyle = '#2a3555';
+    vctx.font = '10px JetBrains Mono';
+    vctx.fillText('No path computed', 10, H/2);
+    return;
+  }
+
+  const vmax   = getConstraints().v_max;
+  const T_total = keypoints[keypoints.length-1].time || 0;
+  if (T_total <= 0) return;
+
+  const pad = { l:30, r:6, t:6, b:18 };
+  const iW  = W-pad.l-pad.r, iH = H-pad.t-pad.b;
+
+  const tx = (t) => pad.l + (t/T_total)*iW;
+  const vy = (v) => pad.t + (1 - v/vmax)*iH;
+
+  // grid
+  vctx.strokeStyle = '#1c2540'; vctx.lineWidth = 1;
+  for (let vi = 0; vi <= 4; vi++) {
+    const yy = pad.t + (vi/4)*iH;
+    vctx.beginPath(); vctx.moveTo(pad.l, yy); vctx.lineTo(W-pad.r, yy); vctx.stroke();
+    vctx.fillStyle='#2a3555'; vctx.font='8px JetBrains Mono';
+    vctx.fillText((vmax*(1-vi/4)).toFixed(1), 2, yy+3);
+  }
+
+  // MPC dt tick marks — one vertical rule per exported keypoint
+  const dt = getPlannerCfg().dt;
+  vctx.strokeStyle = 'rgba(61,142,240,0.15)'; vctx.lineWidth = 1;
+  for (const kp of keypoints) {
+    const x = tx(kp.time || 0);
+    vctx.beginPath(); vctx.moveTo(x, pad.t); vctx.lineTo(x, pad.t+iH); vctx.stroke();
+  }
+
+  // speed limit line
+  vctx.beginPath(); vctx.strokeStyle='#e8953a'; vctx.lineWidth=1; vctx.setLineDash([3,3]);
+  keypoints.forEach((kp,i) => {
+    const x=tx(kp.time||0), y=vy(kp.speed_limit);
+    i===0 ? vctx.moveTo(x,y) : vctx.lineTo(x,y);
+  });
+  vctx.stroke(); vctx.setLineDash([]);
+
+  // planned velocity fill
+  vctx.beginPath();
+  keypoints.forEach((kp,i) => {
+    const x=tx(kp.time||0), y=vy(kp.velocity);
+    i===0 ? vctx.moveTo(x,y) : vctx.lineTo(x,y);
+  });
+  const last = keypoints[keypoints.length-1];
+  vctx.lineTo(tx(last.time||0), pad.t+iH);
+  vctx.lineTo(tx(0), pad.t+iH);
+  vctx.closePath();
+  const grad = vctx.createLinearGradient(0,pad.t,0,H-pad.b);
+  grad.addColorStop(0, 'rgba(46,203,136,.35)');
+  grad.addColorStop(1, 'rgba(46,203,136,.03)');
+  vctx.fillStyle = grad; vctx.fill();
+
+  // planned velocity line
+  vctx.beginPath(); vctx.strokeStyle='#2ecb88'; vctx.lineWidth=1.5;
+  keypoints.forEach((kp,i) => {
+    const x=tx(kp.time||0), y=vy(kp.velocity);
+    i===0 ? vctx.moveTo(x,y) : vctx.lineTo(x,y);
+  });
+  vctx.stroke();
+
+  // keypoint dots on the velocity curve
+  vctx.fillStyle='#3d8ef0';
+  for (const kp of keypoints) {
+    vctx.beginPath();
+    vctx.arc(tx(kp.time||0), vy(kp.velocity), 2, 0, 2*Math.PI);
+    vctx.fill();
+  }
+
+  // x-axis labels
+  vctx.fillStyle='#2a3555'; vctx.font='8px JetBrains Mono';
+  vctx.fillText('0s', pad.l-3, H-3);
+  vctx.fillText(T_total.toFixed(1)+'s', W-pad.r-22, H-3);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATS + TABLE
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateStats() {
+  const set = (id, v) => { document.getElementById(id).textContent = v; };
+  if (!keypoints.length) {
+    ['st-len','st-junc','st-kp','st-time','st-vmax'].forEach(id=>set(id,'—'));
+    return;
+  }
+  const sTotal = keypoints[keypoints.length-1].arc_length;
+  const vmax   = Math.max(...keypoints.map(k=>k.velocity));
+
+  // estimate travel time via trapezoidal integration
+  let t = 0;
+  for (let i = 1; i < keypoints.length; i++) {
+    const ds = keypoints[i].arc_length - keypoints[i-1].arc_length;
+    const vm = (keypoints[i].velocity + keypoints[i-1].velocity) * .5;
+    if (vm > 0) t += ds/vm;
+  }
+
+  set('st-len',  sTotal.toFixed(2) + ' m');
+  set('st-junc', smoothResult ? smoothResult.junctions.length : '—');
+  set('st-kp',   keypoints.length + '  (' + getPlannerCfg().dt.toFixed(2) + 's steps)');
+  set('st-time', t.toFixed(2) + ' s');
+  set('st-vmax', vmax.toFixed(2) + ' m/s');
+
+  // table
+  const tbody = document.getElementById('kp-tbody');
+  tbody.innerHTML = '';
+  const step = Math.max(1, Math.floor(keypoints.length / 120));
+  for (let i = 0; i < keypoints.length; i += step) {
+    const kp = keypoints[i];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i}</td>
+      <td>${(kp.time !== undefined ? kp.time.toFixed(3) : '—')}</td>
+      <td>${kp.curvature.toFixed(3)}</td>
+      <td class="lim">${kp.speed_limit.toFixed(2)}</td>
+      <td class="vel">${kp.velocity.toFixed(2)}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function updateWpList() {
+  const ul = document.getElementById('wp-list');
+  ul.innerHTML = '';
+  waypoints.forEach((wp, i) => {
+    const li = document.createElement('li');
+    li.dataset.idx = i;
+    li.innerHTML = `<span class="idx">${i}</span><span class="coords">(${wp[0].toFixed(2)}, ${wp[1].toFixed(2)})</span><span class="del" data-del="${i}">×</span>`;
+    li.addEventListener('click', e => {
+      if (e.target.dataset.del !== undefined) return;
+    });
+    li.querySelector('.del').addEventListener('click', e => {
+      e.stopPropagation();
+      waypoints.splice(i, 1);
+      recompute();
+    });
+    ul.appendChild(li);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RECOMPUTE
+// ─────────────────────────────────────────────────────────────────────────────
+
+function recompute() {
+  smoothResult = null; segments = []; keypoints = [];
+  if (waypoints.length >= 3) {
+    const c   = getConstraints();
+    const cfg = getPlannerCfg();
+    smoothResult = smooth(waypoints, c);
+    segments     = buildSegments(waypoints, smoothResult.junctions, c.v_max);
+    const densePts = generateKeypoints(segments, cfg);  // fine arc-length grid
+    keypoints      = resampleByTime(densePts, cfg.dt);  // uniform time grid
+  }
+  draw();
+  drawVelChart();
+  updateStats();
+  updateWpList();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERACTION: click to add, drag to move, right-click to delete
+// ─────────────────────────────────────────────────────────────────────────────
+
+let dragging = -1;
+let dragStart = null;
+
+function hitTest(cx, cy) {
+  const threshold = 12;
+  for (let i = waypoints.length-1; i >= 0; i--) {
+    const [px,py] = w2c(...waypoints[i]);
+    if (norm2(cx-px, cy-py) < threshold) return i;
+  }
+  return -1;
+}
+
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const idx  = hitTest(e.clientX-rect.left, e.clientY-rect.top);
+  if (idx >= 0) { waypoints.splice(idx, 1); recompute(); }
+});
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX-rect.left, cy = e.clientY-rect.top;
+  const idx = hitTest(cx, cy);
+  if (idx >= 0) {
+    dragging  = idx;
+    dragStart = [cx, cy];
+    canvas.style.cursor = 'grabbing';
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (dragging < 0) return;
+  const rect = canvas.getBoundingClientRect();
+  waypoints[dragging] = c2w(e.clientX-rect.left, e.clientY-rect.top);
+  recompute();
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (dragging >= 0) { dragging=-1; canvas.style.cursor='crosshair'; return; }
+  if (e.button !== 0) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX-rect.left, cy = e.clientY-rect.top;
+  if (hitTest(cx, cy) >= 0) return;
+  waypoints.push(c2w(cx, cy));
+  recompute();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTROLS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function bindSlider(id, labelId, fmt) {
+  const sl = document.getElementById(id);
+  const inp = document.getElementById(labelId);
+
+  function applyValue(v) {
+    if (isNaN(v) || v <= 0) return;
+    // Expand slider range if needed
+    if (v < parseFloat(sl.min)) sl.min = v;
+    if (v > parseFloat(sl.max)) sl.max = v;
+    sl.value = v;
+    inp.value = v.toFixed(fmt);
+    recompute();
+  }
+
+  // Initialise display
+  inp.value = parseFloat(sl.value).toFixed(fmt);
+
+  // Slider moves → update text box
+  sl.addEventListener('input', () => {
+    inp.value = parseFloat(sl.value).toFixed(fmt);
+    recompute();
+  });
+
+  // Text box: commit on Enter or blur
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+  });
+  inp.addEventListener('blur', () => {
+    applyValue(parseFloat(inp.value));
+  });
+  // Select all on focus for quick overtype
+  inp.addEventListener('focus', () => inp.select());
+}
+bindSlider('sl-vmax',  'lv-vmax',  1);
+bindSlider('sl-omax',  'lv-omax',  1);
+bindSlider('sl-kmax',  'lv-kmax',  2);
+bindSlider('sl-amax',  'lv-amax',  1);
+bindSlider('sl-vinit', 'lv-vinit', 1);
+bindSlider('sl-dt',    'lv-dt',    2);
+
+function toggleBtn(id, key) {
+  const btn = document.getElementById(id);
+  btn.addEventListener('click', () => {
+    show[key] = !show[key];
+    btn.classList.toggle('active', show[key]);
+    draw();
+  });
+}
+toggleBtn('btn-show-raw',    'raw');
+toggleBtn('btn-show-smooth', 'smooth');
+toggleBtn('btn-show-kp',     'kp');
+toggleBtn('btn-show-vel',    'vel');
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  waypoints = []; recompute();
+});
+
+document.getElementById('btn-load-demo').addEventListener('click', () => {
+  // place a nice S-curve / chicane in world coordinates centred on the canvas
+  const W = canvas.width, H = canvas.height;
+  view.ox = W*.1; view.oy = H*.85; view.scale = Math.min(W,H)/12;
+  waypoints = [
+    [0, 0], [1.5, 0], [2.5, -1.5], [4, -1.5],
+    [5, 0], [6, 1.5], [7.5, 1.5],  [8.5, 0], [10, 0]
+  ];
+  recompute();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VIEW PAN (middle-mouse drag or two-finger trackpad)
+// ─────────────────────────────────────────────────────────────────────────────
+
+let panStart = null;
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 1) { e.preventDefault(); panStart=[e.clientX,e.clientY,view.ox,view.oy]; }
+});
+canvas.addEventListener('mousemove', e => {
+  if (!panStart) return;
+  view.ox = panStart[2] + (e.clientX-panStart[0]);
+  view.oy = panStart[3] + (e.clientY-panStart[1]);
+  draw();
+});
+canvas.addEventListener('mouseup', e => { if(e.button===1) panStart=null; });
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX-rect.left, my = e.clientY-rect.top;
+  const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
+  view.ox = mx - factor*(mx-view.ox);
+  view.oy = my - factor*(my-view.oy);
+  view.scale *= factor;
+  draw();
+}, { passive:false });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────────────
+
+resize();
+
+// Auto-load demo on first render
+(function initDemo() {
+  const W = canvas.width, H = canvas.height;
+  view.ox = W*.1; view.oy = H*.85; view.scale = Math.min(W,H)/12;
+  waypoints = [
+    [0, 0], [1.5, 0], [2.5, -1.5], [4, -1.5],
+    [5, 0], [6, 1.5], [7.5, 1.5],  [8.5, 0], [10, 0]
+  ];
+  recompute();
+})();
+</script>
+</body>
+</html>
