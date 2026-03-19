@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Path Sampler · Stanley Sim</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;1,300&family=Barlow+Condensed:wght@300;400;500;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#060a10;--bg1:#0a0f1a;--bg2:#0f1624;--bg3:#161e30;
+  --border:#1c2540;--muted:#2a3555;--dim:#4a5e88;--label:#6b7fa8;
+  --text:#a8bcd8;--bright:#d0e0f8;--accent:#3d8ef0;--green:#2ecb88;
+  --orange:#e8953a;--yellow:#f0c84a;--red:#e05555;--pink:#d060c0;
+  --mono:'JetBrains Mono',monospace;--sans:'Barlow Condensed',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;
+  height:100vh;display:grid;grid-template-rows:44px 1fr 160px;
+  grid-template-columns:280px 1fr 280px;
+  grid-template-areas:"header header header" "left canvas right" "chart chart chart";overflow:hidden;}
+header{grid-area:header;background:var(--bg1);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 18px;gap:16px;}
+header h1{font-family:var(--sans);font-size:15px;font-weight:700;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--bright);}
+header h1 span{color:var(--accent);}
+.hbadge{font-size:10px;letter-spacing:.08em;color:var(--dim);border:1px solid var(--border);
+  border-radius:3px;padding:2px 7px;}
+header .hright{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.pill{font-size:10px;letter-spacing:.07em;padding:3px 9px;border-radius:2px;
+  background:var(--bg3);border:1px solid var(--border);color:var(--label);
+  cursor:pointer;transition:all .15s;}
+.pill:hover{border-color:var(--accent);color:var(--accent);}
+.pill.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.panel{background:var(--bg1);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;}
+.panel.right{border-right:none;border-left:1px solid var(--border);}
+.panel-section{border-bottom:1px solid var(--border);padding:10px 14px;}
+.panel-section.scrollable{flex:1;overflow-y:auto;border-bottom:none;}
+.section-title{font-family:var(--sans);font-size:10px;font-weight:600;
+  letter-spacing:.15em;text-transform:uppercase;color:var(--dim);margin-bottom:10px;}
+.param-row{display:flex;align-items:center;gap:6px;margin-bottom:7px;}
+.param-row:last-child{margin-bottom:0;}
+.param-label{color:var(--label);width:106px;flex-shrink:0;font-size:11px;}
+input[type=range]{-webkit-appearance:none;flex:1;height:2px;background:var(--muted);
+  border-radius:2px;outline:none;cursor:pointer;min-width:0;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;
+  border-radius:50%;background:var(--accent);border:none;}
+input[type=range]:hover{background:var(--dim);}
+input[type=number]{width:52px;flex-shrink:0;background:var(--bg2);
+  border:1px solid var(--border);border-radius:2px;color:var(--accent);
+  font-family:var(--mono);font-size:11px;text-align:right;padding:1px 4px;
+  outline:none;-moz-appearance:textfield;}
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
+input[type=number]:focus{border-color:var(--accent);}
+.derived-val{width:52px;flex-shrink:0;color:var(--dim);font-size:11px;text-align:right;}
+.mode-row{display:flex;gap:6px;flex-wrap:wrap;}
+.mode-btn{font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:4px 10px;
+  border-radius:2px;border:1px solid var(--border);background:var(--bg2);
+  color:var(--label);cursor:pointer;transition:all .15s;}
+.mode-btn:hover{border-color:var(--accent);color:var(--accent);}
+.mode-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.legend-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;
+  font-size:11px;color:var(--label);}
+.swatch{width:24px;height:3px;border-radius:2px;flex-shrink:0;}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.stat-box{background:var(--bg2);border:1px solid var(--border);
+  border-radius:3px;padding:7px 9px;}
+.stat-key{font-size:9px;letter-spacing:.1em;color:var(--dim);
+  text-transform:uppercase;margin-bottom:3px;}
+.stat-val{font-size:13px;color:var(--bright);}
+#canvas-wrap{grid-area:canvas;position:relative;overflow:hidden;background:var(--bg);}
+canvas{display:block;width:100%;height:100%;}
+#chart-row{grid-area:chart;background:var(--bg1);border-top:1px solid var(--border);
+  display:grid;grid-template-columns:auto 1fr auto;align-items:stretch;overflow:hidden;}
+#chart-labels{padding:6px 8px 6px 10px;display:flex;flex-direction:column;
+  justify-content:space-between;font-size:9px;color:var(--dim);min-width:28px;text-align:right;}
+#chart-canvas{display:block;width:100%;height:100%;cursor:crosshair;}
+#chart-legend{padding:6px 12px;display:flex;flex-direction:column;gap:5px;
+  justify-content:center;font-size:10px;color:var(--label);border-left:1px solid var(--border);}
+.cl{display:flex;align-items:center;gap:6px;}
+.cl-dot{width:8px;height:3px;border-radius:2px;flex-shrink:0;}
+#hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
+  font-size:10px;letter-spacing:.08em;color:var(--dim);pointer-events:none;
+  background:var(--bg1);border:1px solid var(--border);padding:4px 12px;border-radius:2px;
+  white-space:nowrap;}
+::-webkit-scrollbar{width:4px;}
+::-webkit-scrollbar-track{background:var(--bg1);}
+::-webkit-scrollbar-thumb{background:var(--muted);border-radius:2px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>Path Sampler · <span>Stanley Sim</span></h1>
+  <span class="hbadge">INTERACTIVE</span>
+  <div class="hright">
+    <button class="pill" id="btn-clear">CLEAR</button>
+    <button class="pill" id="btn-preset-s">S-CURVE</button>
+    <button class="pill" id="btn-preset-u">U-TURN</button>
+    <button class="pill" id="btn-preset-zigzag">ZIGZAG</button>
+  </div>
+</header>
+
+<div class="panel" id="left-panel">
+  <div class="panel-section">
+    <div class="section-title">Path Sampler</div>
+    <div class="param-row"><span class="param-label">k_max</span>
+      <input type="range" id="p-kmax" min="0.001" max="5" step="0.001" value="1.0">
+      <input type="number" id="v-kmax" min="0.001" step="0.001" value="1.0"></div>
+    <div class="param-row"><span class="param-label">v_max (m/s)</span>
+      <input type="range" id="p-vmax" min="0.01" max="3" step="0.01" value="0.5">
+      <input type="number" id="v-vmax" min="0.01" step="0.01" value="0.5"></div>
+    <div class="param-row"><span class="param-label">ω_max (r/s)</span>
+      <input type="range" id="p-wmax" min="0.01" max="5" step="0.01" value="1.5">
+      <input type="number" id="v-wmax" min="0.01" step="0.01" value="1.5"></div>
+    <div class="param-row"><span class="param-label">a_max (m/s²)</span>
+      <input type="range" id="p-amax" min="0.01" max="5" step="0.01" value="1.0">
+      <input type="number" id="v-amax" min="0.01" step="0.01" value="1.0"></div>
+    <div class="param-row"><span class="param-label">track width (m)</span>
+      <input type="range" id="p-tw" min="0.05" max="2" step="0.01" value="0.5">
+      <input type="number" id="v-tw" min="0.05" step="0.01" value="0.5"></div>
+    <div class="param-row"><span class="param-label">smooth passes</span>
+      <input type="range" id="p-smooth" min="1" max="20" step="1" value="5">
+      <input type="number" id="v-smooth" min="1" step="1" value="5"></div>
+  </div>
+  <div class="panel-section">
+    <div class="section-title">Stanley Controller</div>
+    <div class="param-row"><span class="param-label">K₁ (crosstrack)</span>
+      <input type="range" id="p-k1" min="0.001" max="5" step="0.001" value="0.8">
+      <input type="number" id="v-k1" min="0.001" step="0.001" value="0.8"></div>
+    <div class="param-row"><span class="param-label">ω_Kp (heading)</span>
+      <input type="range" id="p-wkp" min="0.01" max="10" step="0.01" value="2.0">
+      <input type="number" id="v-wkp" min="0.01" step="0.01" value="2.0"></div>
+    <div class="param-row"><span class="param-label">k_lookahead</span>
+      <input type="range" id="p-klook" min="0" max="5" step="0.05" value="1.0">
+      <input type="number" id="v-klook" min="0" step="0.05" value="1.0"></div>
+    <div class="param-row"><span class="param-label">k_ff (curv. feedfwd)</span>
+      <input type="range" id="p-kff" min="0" max="2" step="0.01" value="1.0">
+      <input type="number" id="v-kff" min="0" step="0.01" value="1.0"></div>
+    <div class="param-row"><span class="param-label">k_corner</span>
+      <input type="range" id="p-kcorn" min="0.01" max="1" step="0.01" value="1.0">
+      <input type="number" id="v-kcorn" min="0.01" step="0.01" value="1.0"></div>
+    <div class="param-row"><span class="param-label">Dt (s)</span>
+      <input type="range" id="p-dt" min="0.005" max="0.2" step="0.005" value="0.05">
+      <input type="number" id="v-dt" min="0.005" step="0.005" value="0.05"></div>
+    <div class="param-row"><span class="param-label">Vd_max (a·Dt)</span>
+      <span style="flex:1"></span>
+      <span class="derived-val" id="v-vdmax">0.050</span></div>
+    <div class="param-row"><span class="param-label">goal radius (m)</span>
+      <input type="range" id="p-grad" min="0.01" max="0.5" step="0.005" value="0.15">
+      <input type="number" id="v-grad" min="0.001" step="0.005" value="0.15"></div>
+    <div class="param-row"><span class="param-label">max steps</span>
+      <input type="range" id="p-steps" min="100" max="10000" step="100" value="2000">
+      <input type="number" id="v-steps" min="100" step="100" value="2000"></div>
+  </div>
+</div>
+
+<div id="canvas-wrap">
+  <canvas id="cv"></canvas>
+  <div id="hint">CLICK: add waypoint · RIGHT-CLICK: remove last · MIDDLE-DRAG / SPACE-DRAG: pan · SCROLL: zoom · DRAG waypoints or robot pose</div>
+</div>
+
+<div class="panel right">
+  <div class="panel-section">
+    <div class="section-title">Display</div>
+    <div class="mode-row">
+      <button class="mode-btn active" id="tog-raw">Raw path</button>
+      <button class="mode-btn active" id="tog-smooth">Smooth segs</button>
+      <button class="mode-btn active" id="tog-sim">Sim trace</button>
+      <button class="mode-btn active" id="tog-error">Error lines</button>
+      <button class="mode-btn active" id="tog-grid">Grid</button>
+    </div>
+  </div>
+  <div class="panel-section">
+    <div class="section-title">Legend</div>
+    <div class="legend-row"><div class="swatch" style="background:#2a3555;border:1px dashed #4a5e88"></div>Raw waypoints</div>
+    <div class="legend-row"><div class="swatch" style="background:#3d8ef0"></div>Line segments</div>
+    <div class="legend-row"><div class="swatch" style="background:#f0a030"></div>Arc segments</div>
+    <div class="legend-row"><div class="swatch" style="background:#2ecb88"></div>Simulated trace</div>
+    <div class="legend-row"><div class="swatch" style="background:#e05555;opacity:.7"></div>Lateral error</div>
+    <div class="legend-row"><div class="swatch" style="background:#d060c0"></div>Start pose</div>
+  </div>
+  <div class="panel-section">
+    <div class="section-title">Simulation Stats</div>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="stat-key">Status</div><div class="stat-val" id="s-status">—</div></div>
+      <div class="stat-box"><div class="stat-key">Sim time</div><div class="stat-val" id="s-simtime">—</div></div>
+      <div class="stat-box"><div class="stat-key">Traversed</div><div class="stat-val" id="s-travdist">—</div></div>
+      <div class="stat-box"><div class="stat-key">Path length</div><div class="stat-val" id="s-pathlen">—</div></div>
+      <div class="stat-box"><div class="stat-key">Detour ratio</div><div class="stat-val" id="s-detour">—</div></div>
+      <div class="stat-box"><div class="stat-key">Max |lat err|</div><div class="stat-val" id="s-maxerr">—</div></div>
+      <div class="stat-box"><div class="stat-key">RMS lat err</div><div class="stat-val" id="s-rmserr">—</div></div>
+      <div class="stat-box"><div class="stat-key">Max |ω| (r/s)</div><div class="stat-val" id="s-maxw">—</div></div>
+      <div class="stat-box"><div class="stat-key">Avg speed</div><div class="stat-val" id="s-avgv">—</div></div>
+      <div class="stat-box"><div class="stat-key">Waypoints</div><div class="stat-val" id="s-wpts">0</div></div>
+    </div>
+  </div>
+  <div class="panel-section">
+    <div class="section-title">Step Debugger</div>
+    <div class="param-row">
+      <span class="param-label" style="width:auto;flex:1">Step</span>
+      <input type="number" id="dbg-step-num" min="-1" value="-1"
+             style="width:52px" title="Step index (-1 = full trace)">
+    </div>
+    <input type="range" id="dbg-scrubber" min="-1" max="0" value="-1"
+           style="width:100%;margin-bottom:8px">
+    <div id="dbg-info" style="font-size:10px;color:var(--label);line-height:1.7">
+      Run a simulation to enable.
+    </div>
+  </div>
+  <div class="panel-section scrollable">
+    <div class="section-title">Segment Info</div>
+    <div id="seg-info" style="color:var(--dim);font-size:11px">No path built yet.</div>
+  </div>
+</div>
+
+<div id="chart-row">
+  <div id="chart-labels"></div>
+  <canvas id="chart-canvas"></canvas>
+  <div id="chart-legend">
+    <div class="cl chart-tog active" data-series="vel"  style="cursor:pointer" title="Toggle"><div class="cl-dot" style="background:#3d8ef0"></div>velocity (m/s)</div>
+    <div class="cl chart-tog active" data-series="vmax" style="cursor:pointer" title="Toggle"><div class="cl-dot" style="background:#2ecb88"></div>v_max constraint</div>
+    <div class="cl chart-tog active" data-series="herr" style="cursor:pointer" title="Toggle"><div class="cl-dot" style="background:#f0c84a"></div>|heading err| (rad)</div>
+    <div class="cl chart-tog active" data-series="lerr" style="cursor:pointer" title="Toggle"><div class="cl-dot" style="background:#e05555"></div>|lateral err| (m)</div>
+    <div class="cl chart-tog active" data-series="yaw"  style="cursor:pointer" title="Toggle"><div class="cl-dot" style="background:#d060c0"></div>|yaw rate| (r/s)</div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
+const PI = Math.PI, PI2 = Math.PI*2, PIH = Math.PI*0.5;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let waypoints = [];   // world Vec2 {x,y}
+let startPose = null; // world {x,y,heading} — null until path exists
+let segments  = [];
+let builtPath = null; // {path, segments}
+let simTrace  = [];   // [{x,y,heading}]
+let simErrors = [];   // [{err, closestWorld, dbg}] per step
+let debugStep = -1;   // -1 = show full trace; >= 0 = scrub to this step
+const chartToggles = { vel:true, vmax:true, herr:true, lerr:true, yaw:true };
+let viewOX = 0, viewOY = 0, viewScale = 80;
+const toggles = { raw:true, smooth:true, sim:true, error:true, grid:true, debug:true };
+
+// Drag state
+const DRAG_NONE=0, DRAG_PAN=1, DRAG_WAYPOINT=2, DRAG_POSE_POS=3, DRAG_POSE_HDG=4;
+let dragMode = DRAG_NONE;
+let dragIdx  = -1;
+let dragStartCanvas = null;
+let panViewStart    = null;
+let spaceDown = false;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARAM SYNC — bidirectional range ↔ number input
+// ─────────────────────────────────────────────────────────────────────────────
+function bindParam(rangeId, numberId) {
+  const r = document.getElementById(rangeId);
+  const n = document.getElementById(numberId);
+  r.addEventListener('input', () => { n.value = r.value; updateDerived(); rebuild(); });
+  n.addEventListener('change', () => {
+    let v = parseFloat(n.value);
+    if(isNaN(v)) return;
+    const lo = parseFloat(n.min) || 0;
+    if(v < lo) v = lo;
+    // Expand slider range if value exceeds current max
+    if(v > parseFloat(r.max)) { r.max = v * 2; }
+    n.value = v; r.value = v; updateDerived(); rebuild();
+  });
+  n.addEventListener('keydown', e => { if(e.key==='Enter') n.blur(); });
+}
+bindParam('p-kmax','v-kmax');
+bindParam('p-vmax','v-vmax'); bindParam('p-amax','v-amax');
+bindParam('p-tw','v-tw');
+bindParam('p-smooth','v-smooth'); bindParam('p-k1','v-k1');
+bindParam('p-wkp','v-wkp'); bindParam('p-wmax','v-wmax');
+bindParam('p-klook','v-klook'); bindParam('p-kff','v-kff'); bindParam('p-kcorn','v-kcorn');
+bindParam('p-dt','v-dt'); bindParam('p-grad','v-grad'); bindParam('p-steps','v-steps');
+
+function updateDerived() {
+  const a  = parseFloat(document.getElementById('v-amax').value)||1;
+  const dt = parseFloat(document.getElementById('v-dt').value)||0.05;
+  const wm = parseFloat(document.getElementById('v-wmax').value)||1.5;
+  document.getElementById('v-vdmax').textContent = (a*dt).toFixed(3);
+}
+updateDerived();
+
+function pf(id){ return parseFloat(document.getElementById(id).value); }
+function pi2(id){ return parseInt(document.getElementById(id).value); }
+
+function getParams(){
+  const a_max = pf('v-amax'), Dt = pf('v-dt');
+  const omega_max = pf('v-wmax');
+  return {
+    k_max: pf('v-kmax'), omega_max,
+    v_max: pf('v-vmax'), a_max, smoothing_passes: pi2('v-smooth'),
+    k1: pf('v-k1'), omega_Kp: pf('v-wkp'), omega_max,
+    V_delta_max: a_max * Dt,
+    k_lookahead: pf('v-klook'),
+    k_ff:        pf('v-kff'),
+    k_corner:    pf('v-kcorn'),
+    track_width: pf('v-tw'),
+    Dt, goal_radius: pf('v-grad'), max_steps: pi2('v-steps'),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MATH HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+const alphaf = t => Math.cos(t*0.5);
+const gammaf = t => Math.tan(t*0.5);
+const rhof   = t => { const a=alphaf(t); return a/(1-a); };
+
+const vadd  = (a,b) => ({x:a.x+b.x, y:a.y+b.y});
+const vsub  = (a,b) => ({x:a.x-b.x, y:a.y-b.y});
+const vscl  = (v,s) => ({x:v.x*s,   y:v.y*s});
+const vdot  = (a,b) => a.x*b.x+a.y*b.y;
+const vnorm = v     => Math.sqrt(v.x*v.x+v.y*v.y);
+const vnrm  = v     => { const n=vnorm(v); return n<1e-9?{x:0,y:0}:{x:v.x/n,y:v.y/n}; };
+const vang  = v     => Math.atan2(v.y,v.x);
+const wrap  = a     => { while(a>PI)a-=PI2; while(a<-PI)a+=PI2; return a; };
+const clamp = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
+
+function worldToRobot(pt, pose){
+  const dx=pt.x-pose.x, dy=pt.y-pose.y;
+  const c=Math.cos(-pose.heading), s=Math.sin(-pose.heading);
+  return {x:dx*c-dy*s, y:dx*s+dy*c};
+}
+function robotToWorld(pt, pose){
+  const c=Math.cos(pose.heading), s=Math.sin(pose.heading);
+  return {x:pose.x+pt.x*c-pt.y*s, y:pose.y+pt.x*s+pt.y*c};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATH SAMPLER — JS port
+// ─────────────────────────────────────────────────────────────────────────────
+function filterPath(wpts){
+  if(wpts.length<2) return [...wpts];
+  const DEPS=1e-4, CEPS=Math.cos(1e-4), out=[wpts[0]];
+  for(let i=1;i<wpts.length;i++){
+    if(vnorm(vsub(wpts[i],out[out.length-1]))<=DEPS) continue;
+    const j=out.length;
+    if(j>1){
+      const si=vnrm(vsub(out[j-1],out[j-2])), so=vnrm(vsub(wpts[i],out[j-1]));
+      if(Math.abs(vdot(si,so))>CEPS) out[j-1]=wpts[i];
+      else out.push(wpts[i]);
+    } else out.push(wpts[i]);
+  }
+  return out;
+}
+
+function optimizeJunction(s,juncs,halfTans,segLen){
+  const gL=halfTans[s-1],gR=halfTans[s];
+  const budget=segLen[s];
+  const tanL=juncs[s-1].radius*gL, tanR=juncs[s].radius*gR;
+  if(tanL+tanR<=budget) return;
+  const half=budget*0.5;
+  if(tanL<=half){ if(gR>0) juncs[s].radius=Math.min(juncs[s].radius,(budget-tanL)/gR); }
+  else if(tanR<=half){ if(gL>0) juncs[s-1].radius=Math.min(juncs[s-1].radius,(budget-tanR)/gL); }
+  else{
+    if(gL>0) juncs[s-1].radius=Math.min(juncs[s-1].radius,half/gL);
+    if(gR>0) juncs[s].radius=Math.min(juncs[s].radius,half/gR);
+  }
+}
+
+function buildJunctions(path,params){
+  const n=path.length, nS=n-1, nJ=n-2;
+  const segLen=[];
+  for(let i=0;i<nS;i++) segLen.push(vnorm(vsub(path[i+1],path[i])));
+  const juncs=[], ht=[];
+  for(let j=0;j<nJ;j++){
+    const si=vnrm(vsub(path[j+1],path[j])), so=vnrm(vsub(path[j+2],path[j+1]));
+    const cosT=clamp(vdot(si,so),-1,1);
+    const theta=Math.acos(cosT), h=gammaf(theta);
+    let r=Math.min(params.k_max*rhof(theta), params.v_max/params.omega_max);
+    if(j===0)    r=Math.min(r,segLen[0]/h);
+    if(j===nJ-1) r=Math.min(r,segLen[nJ]/h);
+    juncs.push({theta,radius:r}); ht.push(h);
+  }
+  for(let p=0;p<params.smoothing_passes;p++){
+    for(let s=1;s<nS-1;s++) optimizeJunction(s,juncs,ht,segLen);
+    for(let s=nS-1;s>1;s--) optimizeJunction(s-1,juncs,ht,segLen);
+  }
+  for(let j=0;j<nJ;j++){
+    juncs[j].tan_off=juncs[j].radius*ht[j];
+    juncs[j].v_max=Math.min(params.v_max,juncs[j].radius*params.omega_max);
+  }
+  return juncs;
+}
+
+function buildSegmentsFromPath(path,juncs){
+  const n=path.length, nJ=n-2, segs=[];
+  function pushLine(s,e){
+    const l=vnorm(vsub(e,s)); if(l<1e-7) return;
+    segs.push({type:'line',start:{...s},end:{...e},length:l});
+  }
+  let prevEnd=path[0];
+  for(let i=0;i<nJ;i++){
+    const prev=path[i],curr=path[i+1],next=path[i+2],jn=juncs[i];
+    if(jn.radius<1e-7||jn.theta<1e-4){
+      if(vnorm(vsub(curr,prevEnd))>1e-7){ pushLine(prevEnd,curr); prevEnd=curr; }
+    } else {
+      const s1=vnrm(vsub(curr,prev)), s2=vnrm(vsub(next,curr));
+      let arcBeg=vsub(curr,vscl(s1,jn.tan_off));
+      if(vdot(s1,vsub(arcBeg,prevEnd))<0) arcBeg={...prevEnd};
+      pushLine(prevEnd,arcBeg);
+      const crossZ=s1.x*s2.y-s1.y*s2.x, col=crossZ>0;
+      const toCtr=col?{x:-s1.y,y:s1.x}:{x:s1.y,y:-s1.x};
+      const center=vadd(arcBeg,vscl(toCtr,jn.radius));
+      const startAngle=Math.atan2(arcBeg.y-center.y,arcBeg.x-center.x);
+      const sweepAngle=col?jn.theta:-jn.theta;
+      segs.push({type:'arc',center,radius:jn.radius,startAngle,sweepAngle,
+        v_max:jn.v_max,length:jn.radius*Math.abs(sweepAngle)});
+      prevEnd=vadd(curr,vscl(s2,jn.tan_off));
+    }
+    if(i+1===nJ&&vnorm(vsub(next,prevEnd))>1e-7) pushLine(prevEnd,next);
+  }
+  return segs;
+}
+
+function buildPath(wpts,params){
+  const path=filterPath(wpts);
+  if(path.length<2) return {path,segments:[]};
+  if(path.length<3){
+    const seg={type:'line',start:path[0],end:path[1]};
+    seg.length=vnorm(vsub(seg.end,seg.start));
+    return {path,segments:[seg]};
+  }
+  const juncs=buildJunctions(path,params);
+  return {path,segments:buildSegmentsFromPath(path,juncs)};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STANLEY SAMPLER — JS port (operates in robot frame)
+// ─────────────────────────────────────────────────────────────────────────────
+function sampleLineSeg(seg,t){
+  const diff=vsub(seg.end,seg.start);
+  // Unclamped pt for heading/lateral error (Stanley needs perpendicular projection
+  // even when robot is behind the segment start — do not clamp t here).
+  const pt=vadd(seg.start,vscl(diff,t));
+  // Clamp to [0,1] for localClosest only: this is purely for error visualisation.
+  // An unclamped t can produce a point far off the segment which, when converted
+  // back to world space, shoots the error bar off to infinity.
+  const tc=Math.max(0,Math.min(1,t));
+  const ptc=vadd(seg.start,vscl(diff,tc));
+  return {heading_error:Math.atan2(diff.y,diff.x),
+          lateral_error:pt.y<0?-vnorm(pt):vnorm(pt), localClosest:ptc,
+          path_curvature:0};
+}
+function sampleArcSeg(seg,theta,thetaTan){
+  const pt=vadd(seg.center,{x:Math.cos(theta)*seg.radius,y:Math.sin(theta)*seg.radius});
+  const td={x:Math.cos(thetaTan),y:Math.sin(thetaTan)};
+  const closest=vadd(pt,vscl(td,vdot(td,vscl(pt,-1))));
+  // Signed curvature: positive = CCW (left turn), negative = CW (right turn)
+  const kappa = (seg.sweepAngle > 0 ? 1 : -1) / seg.radius;
+  return {heading_error:thetaTan,
+          lateral_error:closest.y<0?-vnorm(closest):vnorm(closest), localClosest:closest,
+          path_curvature:kappa};
+}
+
+function sampleStanley(rSegs,rPath,vPrev,vMax,aMax,Dt,kLook=1){
+  const offset=vPrev*Dt*kLook;
+  let out={heading_error:0,lateral_error:0,v_max:vMax,
+           is_last_seg:false,is_behind:false,localClosest:{x:0,y:0},path_curvature:0};
+  if(!rSegs.length){
+    out.is_last_seg=true;
+    if(rPath.length){ const kp=rPath[0]; out.is_behind=true; }
+    return out;
+  }
+  let i=0,adjI=0,lenToNext=0,rem=offset,exhausted=false;
+  for(;i<rSegs.length;i++){
+    const seg=rSegs[i];
+    if(seg.type==='line'){
+      const diff=vsub(seg.end,seg.start);
+      const t=vdot(diff,vscl(seg.start,-1))/(seg.length*seg.length);
+      if(t>=1) continue;  // segment fully behind the robot
+      adjI=i;
+      const tOff=rem/seg.length;
+      if(t+tOff<=1){
+        const s=sampleLineSeg(seg,t+tOff);
+        Object.assign(out,s); out.v_max=vMax;
+        lenToNext=(1-t-tOff)*seg.length; rem=0;
+        if(t<0&&rPath.length){ out.is_behind=true; const kp=rPath[0]; }
+      } else { rem-=(1-t)*seg.length; }
+      break;
+    } else {
+      const ea=seg.startAngle+seg.sweepAngle;
+      const lo=Math.min(seg.startAngle,ea), hi=Math.max(seg.startAngle,ea);
+      let theta=Math.atan2(-seg.center.y,-seg.center.x);
+      if(lo<=theta+PI2&&theta+PI2<=hi) theta+=PI2;
+      else if(lo<=theta-PI2&&theta-PI2<=hi) theta-=PI2;
+      else if(!(lo<=theta&&theta<=hi)) continue;
+      const dist=vnorm(seg.center); if(dist<=1e-4) continue;
+      adjI=i;
+      const offT=rem/dist, ccw=seg.sweepAngle>0;
+      const theta2=ccw?theta+offT:theta-offT;
+      const within=ccw?theta2<ea:theta2>ea;
+      if(within){
+        const tt=theta2+(ccw?PIH:-PIH);
+        const s=sampleArcSeg(seg,theta2,tt);
+        Object.assign(out,s); out.v_max=seg.v_max;
+        lenToNext=Math.abs(ea-theta2)*seg.radius; rem=0;
+      } else { rem=Math.abs(theta2-ea)*dist; }
+      break;
+    }
+  }
+  if(i>=rSegs.length&&rSegs.length>0){
+    exhausted=true; adjI=rSegs.length-1; lenToNext=0; rem=0;
+    const last=rSegs[rSegs.length-1];
+    if(last.type==='line'){ const s=sampleLineSeg(last,1); Object.assign(out,s); out.v_max=vMax; }
+    else{
+      const ccw=last.sweepAngle>0, theta=last.startAngle+last.sweepAngle;
+      const tt=theta+(ccw?PIH:-PIH);
+      const s=sampleArcSeg(last,theta,tt); Object.assign(out,s); out.v_max=last.v_max;
+    }
+  }
+  out.is_last_seg=rPath.length<2||adjI+1>=rSegs.length||exhausted;
+  out.adjSegIdx=adjI;
+  // Phase 2
+  while(rem>0&&i+1<rSegs.length){
+    i++; const seg=rSegs[i]; const isLast=i+1>=rSegs.length;
+    if(seg.type==='line'){
+      if(rem<seg.length||isLast){
+        const diff=vsub(seg.end,seg.start);
+        const t=vdot(diff,vscl(seg.start,-1))/(seg.length*seg.length);
+        const s=sampleLineSeg(seg,t); Object.assign(out,s); out.v_max=vMax;
+        lenToNext=seg.length-rem; rem=0;
+      } else rem-=seg.length;
+    } else {
+      if(rem<seg.length||isLast){
+        const tOff=Math.min(rem/seg.radius,Math.abs(seg.sweepAngle));
+        const ccw=seg.sweepAngle>0;
+        const theta=seg.startAngle+(ccw?tOff:-tOff);
+        const tt=theta+(ccw?PIH:-PIH);
+        const s=sampleArcSeg(seg,theta,tt); Object.assign(out,s); out.v_max=seg.v_max;
+        lenToNext=(Math.abs(seg.sweepAngle)-tOff)*seg.radius; rem=0;
+      } else rem-=seg.length;
+    }
+  }
+  // Phase 3
+  const sd=(vMax*vMax)/(2*aMax); let td=lenToNext;
+  for(let j=i+1;td<sd&&j<rSegs.length;j++){
+    const seg=rSegs[j];
+    if(seg.type==='line') td+=seg.length;
+    else{ out.v_max=Math.min(out.v_max,Math.sqrt(seg.v_max*seg.v_max+2*td*aMax)); td+=seg.length; }
+  }
+  if(i>=rSegs.length&&td<sd) out.v_max=Math.min(out.v_max,Math.sqrt(2*td*aMax));
+  out.heading_error=wrap(out.heading_error);
+  return out;
+}
+
+function transformSegs(segs,pose){
+  return segs.map(seg=>{
+    if(seg.type==='line') return {...seg,start:worldToRobot(seg.start,pose),end:worldToRobot(seg.end,pose)};
+    return {...seg,center:worldToRobot(seg.center,pose),startAngle:seg.startAngle-pose.heading};
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATH TRIMMING — monotonic index-based, matching real code behaviour
+//
+// startIdx is carried across simulation steps and only ever increases.
+// This prevents the "un-passing" problem where the robot turns around at a
+// U-turn and the half-plane test suddenly de-advances the trim index.
+//
+// Matching your C++ planner exactly:
+//   proj = diff.dot(robot - path[i]) / diff.squaredNorm()
+//   advance while proj >= 1
+// ─────────────────────────────────────────────────────────────────────────────
+function advanceTrimIdx(worldPath, pose, startIdx){
+  let idx = startIdx;
+  while(idx + 1 < worldPath.length){
+    const A = worldPath[idx], B = worldPath[idx+1];
+    const diff = vsub(B, A);
+    const len2 = vdot(diff, diff);
+    if(len2 < 1e-8){ idx++; continue; }
+
+    // Primary: projection of robot onto A→B >= 1 (robot past B along edge).
+    // Matches C++ planner exactly.
+    const proj = vdot(diff, vsub(pose, A)) / len2;
+    if(proj >= 1){ idx++; continue; }
+
+    // Secondary: use the bend bisector at B to handle sharp corners where the
+    // smoothed arc pulls the robot inside the bend before reaching B, causing
+    // proj to never reach 1 on the incoming edge.
+    //
+    // The bisector of the bend A→B→C points "forward through B" regardless of
+    // bend angle. The robot has passed B when it's in the forward half-plane
+    // of that bisector: dot(robot - B, bisector) >= 0.
+    //
+    // For the last waypoint there is no C, so we fall back to the perpendicular
+    // at B (the original pastNode condition), which is correct for straight
+    // final approaches.
+    if(idx + 2 < worldPath.length){
+      const C = worldPath[idx+2];
+      const s1 = vnrm(diff);
+      const s2 = vnrm(vsub(C, B));
+      const bisector = vnrm(vadd(s1, s2));   // forward bisector at B
+      // Degenerate if s1 ≈ -s2 (U-turn, bisector ≈ zero). Fall through to
+      // perpendicular test in that case.
+      if(vnorm(vadd(s1,s2)) > 0.1){
+        if(vdot(bisector, vsub(pose, B)) >= 0){ idx++; continue; }
+      } else {
+        // U-turn: robot has passed B when it's on the far side of B's
+        // perpendicular AND has come around (proj along outgoing edge > 0).
+        const outProj = vdot(s2, vsub(pose, B));
+        if(outProj >= 0){ idx++; continue; }
+      }
+    } else {
+      // Last segment: perpendicular at B
+      if(vdot(diff, vsub(pose, B)) >= 0){ idx++; continue; }
+    }
+    break;
+  }
+  return idx;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STANLEY CONTROLLER STEP
+// ─────────────────────────────────────────────────────────────────────────────
+function maxStartVel(v0,dist,aMax){ return Math.sqrt(v0*v0+2*aMax*dist); }
+
+function stepController(pose, vPrev, trimmedPath, builtPath2, isOnLastLeg, params){
+  const {v_max,a_max,k1,omega_Kp,omega_max,V_delta_max,k_lookahead,k_ff,k_corner,track_width,Dt} = params;
+
+  // Apply k_corner: scale arc v_max constraints down so the robot brakes harder
+  // before tight bends. k_corner=1 = no change, <1 = slower through corners.
+  const scaledSegs = builtPath2.segments.map(seg =>
+    seg.type==='arc' ? {...seg, v_max: seg.v_max * k_corner} : seg);
+  const rSegs = transformSegs({...builtPath2, segments: scaledSegs}.segments, pose);
+  const rPath = trimmedPath.map(p=>worldToRobot(p,pose));
+
+  // k_lookahead scales the lookahead offset: offset = k * v * Dt.
+  // >1 makes the controller anticipate corners earlier; 0 disables lookahead.
+  const s = sampleStanley(rSegs,rPath,vPrev,v_max,a_max,Dt,k_lookahead);
+
+  // Only switch to point-at-goal mode on the genuine last leg of the full path.
+  s.is_last_seg = s.is_last_seg && isOnLastLeg;
+
+  const worldClosest = s.localClosest ? robotToWorld(s.localClosest, pose) : {...pose};
+
+  let V_new=0, W_cmd=0;
+  if(s.is_last_seg){
+    const S=rPath[rPath.length-1];
+    const theta=Math.atan2(S.y,S.x);
+    W_cmd=clamp(omega_Kp*theta,-omega_max,omega_max);
+    const Va=Math.abs(theta)<(15*PI/180)?v_max:0;
+    const Vb=maxStartVel(0,vnorm(S),a_max);
+    V_new=clamp(Math.min(Va,Vb),vPrev-V_delta_max,vPrev+V_delta_max);
+  } else {
+    const Vf=clamp(Math.min(v_max,s.v_max),vPrev-V_delta_max,vPrev+V_delta_max);
+    const safeV=Math.max(Vf,0.01);
+    const Ws=s.heading_error;
+    const Wc=Math.atan(k1*Math.abs(s.lateral_error)/safeV)*(s.lateral_error<0?-1:1);
+    // Curvature feedforward: W_ff = k_ff * V * κ
+    // Adds the angular rate the robot needs just to follow the path curvature,
+    // independent of any error. Without this, the controller always lags behind
+    // on arcs because it can only react to error that has already accumulated.
+    const Wff=k_ff*Vf*(s.path_curvature||0);
+    W_cmd=clamp(Ws+Wc+Wff,-omega_max,omega_max);
+    V_new=Vf;
+  }
+
+  // Differential drive: convert body V,W to per-track velocities, then
+  // apply applyTrackLimits (scale both tracks by the same factor so the
+  // fastest track hits v_max exactly, preserving the turning ratio).
+  const tw = track_width;
+  const Vl_t = V_new - W_cmd * tw * 0.5;
+  const Vr_t = V_new + W_cmd * tw * 0.5;
+  const s_scale = Math.min(1, v_max / Math.max(Math.abs(Vl_t), Math.abs(Vr_t), 1e-9));
+  const Vl = Vl_t * s_scale;
+  const Vr = Vr_t * s_scale;
+  const Wb = (Vr - Vl) / tw;          // actual yaw rate after limiting
+  V_new     = (Vl + Vr) * 0.5;        // actual forward speed after limiting
+  const newH=pose.heading+Wb*Dt;
+  const worldSamplePt = s.localClosest ? robotToWorld(s.localClosest, pose) : {...pose};
+  return {
+    pose:{x:pose.x+V_new*Math.cos(newH)*Dt, y:pose.y+V_new*Math.sin(newH)*Dt, heading:newH},
+    vPrev:V_new, lateralError:s.lateral_error, is_last_seg:s.is_last_seg,
+    worldClosest, worldSamplePt,
+    targetSegIdx: s.adjSegIdx,
+    heading_error: s.heading_error,
+    vmax_constraint: s.v_max,
+    W_body: Wb,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIMULATION
+// ─────────────────────────────────────────────────────────────────────────────
+function runSimulation(worldPath, initPose, params){
+  if(worldPath.length<2) return {trace:[],errors:[],status:'NO PATH'};
+  let pose={...initPose}, vPrev=0;
+  const trace=[{...pose}], errorData=[{err:0,cw:{...pose}}];
+  const goal=worldPath[worldPath.length-1];
+  let status='RUNNING', stuck=0, lastX=pose.x, lastY=pose.y;
+  let totalDist=0;
+  const wallStart=performance.now();
+  // startIdx is monotonically non-decreasing — it only ever advances forward,
+  // preventing U-turns or lateral offsets from accidentally de-advancing the trim.
+  let startIdx=0;
+  for(let step=0;step<params.max_steps;step++){
+    // Advance startIdx only forward, never backward
+    startIdx = advanceTrimIdx(worldPath, pose, startIdx);
+    const trimmed = worldPath.slice(startIdx);
+    if(trimmed.length<2){ status='DONE'; break; }
+    const built = buildPath(trimmed, params);
+    // Only engage point-at-goal mode when genuinely on the last leg of the
+    // full path (one waypoint remaining after current), not just whenever
+    // trimming happens to reduce to 2 points mid-path.
+    const isOnLastLeg = (startIdx >= worldPath.length - 2);
+    const result=stepController(pose,vPrev,trimmed,built,isOnLastLeg,params);
+    totalDist += Math.hypot(result.pose.x-pose.x, result.pose.y-pose.y);
+    pose=result.pose; vPrev=result.vPrev;
+    trace.push({...pose});
+    errorData.push({
+      err: result.lateralError,
+      cw:  result.worldClosest,
+      // Telemetry for chart and debugger
+      v:    result.vPrev,
+      vmax: result.vmax_constraint,
+      W:    result.W_body,
+      dbg: {
+        startIdx,
+        trimmedLen: trimmed.length,
+        segs: built.segments,
+        targetSeg: result.targetSegIdx,
+        samplePt:  result.worldSamplePt,
+        isLastSeg: result.is_last_seg,
+        heading_error: result.heading_error,
+        lateral_error: result.lateralError,
+      }
+    });
+    const moved=Math.hypot(pose.x-lastX,pose.y-lastY);
+    if(moved<1e-4) stuck++; else { stuck=0; lastX=pose.x; lastY=pose.y; }
+    if(stuck>80){ status='STUCK'; break; }
+    const dGoal=Math.hypot(pose.x-goal.x,pose.y-goal.y);
+    if(result.is_last_seg&&dGoal<params.goal_radius){ status='DONE'; break; }
+    if(step===params.max_steps-1) status='TIMEOUT';
+  }
+  const wallMs = performance.now() - wallStart;
+  const simTimeSec = (trace.length - 1) * params.Dt;
+  return {trace, errors:errorData, status,
+          simTimeSec, wallMs, totalDist};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEFAULT START POSE
+// ─────────────────────────────────────────────────────────────────────────────
+function defaultStartPose(worldPath){
+  if(worldPath.length<2) return {x:0,y:0,heading:0};
+  const p0=worldPath[0], p1=worldPath[1];
+  return {x:p0.x, y:p0.y, heading:Math.atan2(p1.y-p0.y,p1.x-p0.x)};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REBUILD
+// ─────────────────────────────────────────────────────────────────────────────
+function rebuild(){
+  const params=getParams();
+  builtPath=buildPath(waypoints,params);
+  segments=builtPath.segments;
+  if(!startPose&&waypoints.length>=2) startPose=defaultStartPose(builtPath.path);
+  let simResult={trace:[],errors:[],status:'—'};
+  if(segments.length>0&&builtPath.path.length>=2&&startPose){
+    simResult=runSimulation(builtPath.path,startPose,params);
+  }
+  simTrace=simResult.trace; simErrors=simResult.errors;
+  updateStats(simResult);
+  updateSegInfo();
+  debugStep = -1;
+  updateScrubberRange();
+  draw();
+}
+
+function updateStats(simResult){
+  const {status, simTimeSec=0, wallMs=0, totalDist=0} = simResult || {};
+  const params=getParams();
+  document.getElementById('s-status').textContent=status||'—';
+  document.getElementById('s-wpts').textContent=waypoints.length;
+  const pl=segments.reduce((s,seg)=>s+seg.length,0);
+  document.getElementById('s-pathlen').textContent=pl>0?pl.toFixed(2)+'m':'—';
+  document.getElementById('s-simtime').textContent=
+    simTimeSec>0 ? simTimeSec.toFixed(2)+'s' : '—';
+  document.getElementById('s-travdist').textContent=
+    totalDist>0 ? totalDist.toFixed(2)+'m' : '—';
+  document.getElementById('s-detour').textContent=
+    (pl>0&&totalDist>0) ? (totalDist/pl).toFixed(3) : '—';
+  if(simErrors.length>1){
+    const abs=simErrors.map(e=>Math.abs(e.err));
+    const maxE=Math.max(...abs);
+    const rms=Math.sqrt(abs.reduce((s,v)=>s+v*v,0)/abs.length);
+    document.getElementById('s-maxerr').textContent=maxE.toFixed(3)+'m';
+    document.getElementById('s-rmserr').textContent=rms.toFixed(3)+'m';
+    const vs=simErrors.map(e=>e.v||0);
+    document.getElementById('s-avgv').textContent=
+      (vs.reduce((a,b)=>a+b,0)/vs.length).toFixed(3)+'m/s';
+    const maxW=Math.max(...simErrors.map(e=>Math.abs(e.W||0)));
+    document.getElementById('s-maxw').textContent=maxW.toFixed(3);
+  } else {
+    ['s-maxerr','s-rmserr','s-avgv','s-maxw'].forEach(id=>{
+      document.getElementById(id).textContent='—';
+    });
+  }
+}
+
+function updateSegInfo(){
+  const el=document.getElementById('seg-info');
+  if(!segments.length){ el.textContent='No path built yet.'; return; }
+  let h='';
+  segments.forEach((seg,i)=>{
+    if(seg.type==='line')
+      h+=`<div style="margin-bottom:5px;color:var(--accent)">SEG ${i} LINE</div><div style="color:var(--label);margin-bottom:8px">len=${seg.length.toFixed(3)}m</div>`;
+    else
+      h+=`<div style="margin-bottom:5px;color:var(--yellow)">SEG ${i} ARC</div><div style="color:var(--label);margin-bottom:8px">r=${seg.radius.toFixed(3)}m · sweep=${(seg.sweepAngle*180/PI).toFixed(1)}° · v_max=${seg.v_max.toFixed(2)}</div>`;
+  });
+  el.innerHTML=h;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CANVAS & VIEW
+// ─────────────────────────────────────────────────────────────────────────────
+const canvas=document.getElementById('cv');
+const ctx=canvas.getContext('2d');
+
+function resize(){
+  const wrap=document.getElementById('canvas-wrap');
+  canvas.width=wrap.clientWidth*devicePixelRatio;
+  canvas.height=wrap.clientHeight*devicePixelRatio;
+  if(viewOX===0&&viewOY===0){ viewOX=canvas.width*0.5; viewOY=canvas.height*0.5; }
+  draw();
+}
+function w2c(wx,wy){ return {x:viewOX+wx*viewScale*devicePixelRatio, y:viewOY-wy*viewScale*devicePixelRatio}; }
+function c2w(cx,cy){ return {x:(cx-viewOX)/(viewScale*devicePixelRatio), y:-(cy-viewOY)/(viewScale*devicePixelRatio)}; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW
+// ─────────────────────────────────────────────────────────────────────────────
+function draw(){
+  const W=canvas.width, H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#060a10'; ctx.fillRect(0,0,W,H);
+  if(toggles.grid) drawGrid();
+  if(toggles.error&&simErrors.length>1) drawErrorLines();
+  if(toggles.raw&&waypoints.length>=2) drawRaw();
+  if(toggles.smooth&&segments.length>0) drawSegments();
+  if(toggles.sim&&simTrace.length>1) drawSimTrace();
+  if(toggles.debug&&debugStep>=0) drawDebugStep(debugStep);
+  drawWaypoints();
+  if(startPose) drawStartPose();
+  drawScaleBar();
+  drawChart();
+}
+
+function drawGrid(){
+  const gs=1;
+  const c0=c2w(0,0), c1=c2w(canvas.width,canvas.height);
+  const x0=Math.floor(c0.x/gs)*gs, x1=Math.ceil(c1.x/gs)*gs;
+  const y0=Math.floor(c1.y/gs)*gs, y1=Math.ceil(c0.y/gs)*gs;
+  ctx.lineWidth=devicePixelRatio;
+  for(let x=x0;x<=x1;x+=gs){
+    const lum=(x===0)?'#161e30':'#0f1624';
+    ctx.strokeStyle=lum; ctx.beginPath();
+    const cx=w2c(x,0); ctx.moveTo(cx.x,0); ctx.lineTo(cx.x,canvas.height); ctx.stroke();
+  }
+  for(let y=y0;y<=y1;y+=gs){
+    const lum=(y===0)?'#161e30':'#0f1624';
+    ctx.strokeStyle=lum; ctx.beginPath();
+    const cy=w2c(0,y); ctx.moveTo(0,cy.y); ctx.lineTo(canvas.width,cy.y); ctx.stroke();
+  }
+}
+
+function drawRaw(){
+  ctx.strokeStyle='#2a3555'; ctx.lineWidth=1.5*devicePixelRatio;
+  ctx.setLineDash([6*devicePixelRatio,5*devicePixelRatio]);
+  ctx.beginPath();
+  waypoints.forEach((p,i)=>{ const c=w2c(p.x,p.y); i===0?ctx.moveTo(c.x,c.y):ctx.lineTo(c.x,c.y); });
+  ctx.stroke(); ctx.setLineDash([]);
+}
+
+function drawSegments(){
+  segments.forEach(seg=>{
+    if(seg.type==='line'){
+      const a=w2c(seg.start.x,seg.start.y), b=w2c(seg.end.x,seg.end.y);
+      ctx.strokeStyle='#3d8ef0'; ctx.lineWidth=2.5*devicePixelRatio;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+    } else {
+      const c=w2c(seg.center.x,seg.center.y), r=seg.radius*viewScale*devicePixelRatio;
+      ctx.strokeStyle='#f0a030'; ctx.lineWidth=2.5*devicePixelRatio;
+      ctx.beginPath();
+      ctx.arc(c.x,c.y,r,-seg.startAngle,-(seg.startAngle+seg.sweepAngle),seg.sweepAngle>0);
+      ctx.stroke();
+    }
+  });
+  segments.filter(s=>s.type==='arc').forEach(seg=>{
+    const c=w2c(seg.center.x,seg.center.y), sz=4*devicePixelRatio;
+    ctx.strokeStyle='rgba(240,160,48,0.3)'; ctx.lineWidth=devicePixelRatio;
+    ctx.beginPath();
+    ctx.moveTo(c.x-sz,c.y); ctx.lineTo(c.x+sz,c.y);
+    ctx.moveTo(c.x,c.y-sz); ctx.lineTo(c.x,c.y+sz);
+    ctx.stroke();
+  });
+}
+
+function drawErrorLines(){
+  // Draw a line from each robot pose to its actual closest point on the path
+  // (computed during sampling), so the lines are always perpendicular to the
+  // path geometry rather than to the robot heading.
+  const stride=Math.max(1,Math.floor(simTrace.length/400));
+  for(let i=0;i<simTrace.length;i+=stride){
+    const pose=simTrace[i];
+    const ed=simErrors[i];
+    if(!ed||Math.abs(ed.err)<0.005) continue;
+    const cp=w2c(pose.x,pose.y);
+    const cc=w2c(ed.cw.x,ed.cw.y);
+    const alpha=Math.min(0.65,Math.abs(ed.err)*2.5);
+    ctx.strokeStyle=`rgba(224,85,85,${alpha})`;
+    ctx.lineWidth=1.5*devicePixelRatio;
+    ctx.beginPath(); ctx.moveTo(cp.x,cp.y); ctx.lineTo(cc.x,cc.y); ctx.stroke();
+  }
+}
+
+function velColor(v, vMax){
+  // deep purple (stopped) → bright green (full speed)
+  const t = Math.min(v / Math.max(vMax, 1e-6), 1);
+  const r = Math.round(120 + (46  - 120) * t);
+  const g = Math.round(0   + (220 - 0  ) * t);
+  const b = Math.round(160 + (88  - 160) * t);
+  return `rgb(${r},${g},${b})`;
+}
+
+function drawSimTrace(){
+  const vMax = getParams().v_max;
+  const lw = 2.5 * devicePixelRatio;
+  // Draw as individual coloured line segments
+  for(let i=1; i<simTrace.length; i++){
+    const a = w2c(simTrace[i-1].x, simTrace[i-1].y);
+    const b = w2c(simTrace[i].x,   simTrace[i].y);
+    const v = simErrors[i]?.v ?? 0;
+    ctx.strokeStyle = velColor(v, vMax);
+    ctx.lineWidth   = lw;
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+  }
+  // End marker
+  const pN = simTrace[simTrace.length-1];
+  const cN = w2c(pN.x, pN.y);
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5*devicePixelRatio;
+  ctx.beginPath(); ctx.arc(cN.x, cN.y, 5*devicePixelRatio, 0, PI2); ctx.stroke();
+}
+
+const WPT_R = 6; // waypoint grab radius in CSS px
+function drawDebugStep(step){
+  const ed = simErrors[step];
+  if(!ed||!ed.dbg) return;
+  const d = ed.dbg;
+  const pose = simTrace[step];
+
+  // Draw the trimmed segments fed to the sampler this step (bright overlay)
+  d.segs.forEach((seg,si)=>{
+    const isTarget = si===d.targetSeg;
+    if(seg.type==='line'){
+      const a=w2c(seg.start.x,seg.start.y), b=w2c(seg.end.x,seg.end.y);
+      ctx.strokeStyle = isTarget ? '#ffffff' : 'rgba(255,255,255,0.15)';
+      ctx.lineWidth   = (isTarget?4:1.5)*devicePixelRatio;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+    } else {
+      const c=w2c(seg.center.x,seg.center.y), r=seg.radius*viewScale*devicePixelRatio;
+      ctx.strokeStyle = isTarget ? '#ffffff' : 'rgba(255,255,255,0.15)';
+      ctx.lineWidth   = (isTarget?4:1.5)*devicePixelRatio;
+      ctx.beginPath();
+      ctx.arc(c.x,c.y,r,-seg.startAngle,-(seg.startAngle+seg.sweepAngle),seg.sweepAngle>0);
+      ctx.stroke();
+    }
+    // Label segment index
+    const mid = seg.type==='line'
+      ? {x:(seg.start.x+seg.end.x)/2, y:(seg.start.y+seg.end.y)/2}
+      : {x:seg.center.x+Math.cos(seg.startAngle+seg.sweepAngle/2)*seg.radius,
+         y:seg.center.y+Math.sin(seg.startAngle+seg.sweepAngle/2)*seg.radius};
+    const cm=w2c(mid.x,mid.y);
+    ctx.fillStyle = isTarget?'#ffffff':'rgba(255,255,255,0.3)';
+    ctx.font=`bold ${11*devicePixelRatio}px 'JetBrains Mono'`;
+    ctx.fillText('s'+si, cm.x+4*devicePixelRatio, cm.y-4*devicePixelRatio);
+  });
+
+  // Draw robot position at this step
+  if(pose){
+    const cp=w2c(pose.x,pose.y);
+    // Robot dot
+    ctx.fillStyle='#ffffff'; ctx.strokeStyle='#000';
+    ctx.lineWidth=2*devicePixelRatio;
+    ctx.beginPath(); ctx.arc(cp.x,cp.y,7*devicePixelRatio,0,PI2); ctx.fill(); ctx.stroke();
+    // Heading arrow
+    const hLen=20*devicePixelRatio;
+    ctx.strokeStyle='#ffffff'; ctx.lineWidth=2*devicePixelRatio;
+    ctx.beginPath(); ctx.moveTo(cp.x,cp.y);
+    ctx.lineTo(cp.x+Math.cos(pose.heading)*hLen, cp.y-Math.sin(pose.heading)*hLen);
+    ctx.stroke();
+  }
+
+  // Draw sample point (where on path the sampler targeted)
+  if(d.samplePt){
+    const cs=w2c(d.samplePt.x,d.samplePt.y);
+    ctx.fillStyle='#f0c84a';
+    ctx.beginPath(); ctx.arc(cs.x,cs.y,5*devicePixelRatio,0,PI2); ctx.fill();
+  }
+
+  // Draw closest point (error endpoint)
+  if(ed.cw){
+    const cc=w2c(ed.cw.x,ed.cw.y);
+    ctx.fillStyle='#e05555';
+    ctx.beginPath(); ctx.arc(cc.x,cc.y,5*devicePixelRatio,0,PI2); ctx.fill();
+    // Line robot→closest
+    if(pose){
+      const cp2=w2c(pose.x,pose.y);
+      ctx.strokeStyle='rgba(224,85,85,0.8)'; ctx.lineWidth=1.5*devicePixelRatio;
+      ctx.beginPath(); ctx.moveTo(cp2.x,cp2.y); ctx.lineTo(cc.x,cc.y); ctx.stroke();
+    }
+  }
+
+  // Update info panel
+  const info = document.getElementById('dbg-info');
+  info.innerHTML =
+    `<span style="color:var(--dim)">step</span> <span style="color:var(--bright)">${step}/${simTrace.length-1}</span><br>`+
+    `<span style="color:var(--dim)">startIdx</span> <span style="color:var(--accent)">${d.startIdx}</span> `+
+    `<span style="color:var(--dim)">/ trimLen</span> <span style="color:var(--accent)">${d.trimmedLen}</span><br>`+
+    `<span style="color:var(--dim)">target seg</span> <span style="color:var(--yellow)">${d.targetSeg ?? '?'}</span> `+
+    `<span style="color:var(--dim)">nSegs</span> <span style="color:var(--accent)">${d.segs.length}</span><br>`+
+    `<span style="color:var(--dim)">is_last_seg</span> <span style="color:${d.isLastSeg?'#e05555':'#2ecb88'}">${d.isLastSeg}</span><br>`+
+    `<span style="color:var(--dim)">heading_err</span> <span style="color:var(--bright)">${(d.heading_error*180/PI).toFixed(1)}°</span><br>`+
+    `<span style="color:var(--dim)">lateral_err</span> <span style="color:var(--bright)">${d.lateral_error.toFixed(3)}m</span>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VELOCITY / TELEMETRY CHART
+// ─────────────────────────────────────────────────────────────────────────────
+function drawChart(){
+  const cc = document.getElementById('chart-canvas');
+  const cctx = cc.getContext('2d');
+  const dpr = devicePixelRatio;
+  const parent = cc.parentElement;
+  cc.width  = parent.clientWidth  * dpr;
+  cc.height = parent.clientHeight * dpr;
+  const W = cc.width, H = cc.height;
+
+  cctx.clearRect(0,0,W,H);
+  cctx.fillStyle='#060a10'; cctx.fillRect(0,0,W,H);
+
+  const n = simErrors.length;
+  if(n < 2){ 
+    cctx.fillStyle='#2a3555'; cctx.font=`${10*dpr}px 'JetBrains Mono'`;
+    cctx.fillText('Run simulation to see chart', 10*dpr, H*0.5);
+    return;
+  }
+
+  const params = getParams();
+  const vMax  = params.v_max;
+  const pad   = {l:4*dpr, r:4*dpr, t:8*dpr, b:20*dpr};
+  const iW    = W - pad.l - pad.r;
+  const iH    = H - pad.t - pad.b;
+
+  // Scale: y maps [0, yMax] to chart height. We use a unified scale for all
+  // normalised-to-vMax series: v and vmax_constraint on left, others scaled.
+  const yMax = vMax * 1.1;
+  const tx = i => pad.l + (i/(n-1))*iW;
+  const ty = v => pad.t + (1 - Math.min(v,yMax)/yMax)*iH;
+
+  // Horizontal grid lines
+  const nGrid = 4;
+  cctx.strokeStyle='#1c2540'; cctx.lineWidth=dpr;
+  const labels = document.getElementById('chart-labels');
+  labels.innerHTML='';
+  for(let g=0;g<=nGrid;g++){
+    const yy = pad.t + (g/nGrid)*iH;
+    cctx.beginPath(); cctx.moveTo(pad.l,yy); cctx.lineTo(W-pad.r,yy); cctx.stroke();
+    const val = yMax*(1-g/nGrid);
+    const span = document.createElement('span');
+    span.textContent = val.toFixed(2);
+    labels.appendChild(span);
+  }
+
+  // Helper to draw a series
+  function series(getData, color, lineWidth=1.5, dashed=false){
+    cctx.strokeStyle=color; cctx.lineWidth=lineWidth*dpr;
+    if(dashed) cctx.setLineDash([4*dpr,3*dpr]);
+    cctx.beginPath();
+    for(let i=0;i<n;i++){
+      const v=getData(i);
+      if(v==null) continue;
+      i===0?cctx.moveTo(tx(i),ty(v)):cctx.lineTo(tx(i),ty(v));
+    }
+    cctx.stroke();
+    cctx.setLineDash([]);
+  }
+
+  if(chartToggles.vmax) series(i => simErrors[i]?.vmax ?? vMax, '#2ecb88', 1, true);
+  if(chartToggles.vel)  series(i => simErrors[i]?.v ?? 0, '#3d8ef0', 2);
+  if(chartToggles.herr) series(i => Math.min(Math.abs(simErrors[i]?.dbg?.heading_error??0), yMax), '#f0c84a', 1);
+  if(chartToggles.lerr) series(i => Math.min(Math.abs(simErrors[i]?.dbg?.lateral_error??0), yMax), '#e05555', 1);
+  if(chartToggles.yaw)  series(i => Math.min(Math.abs(simErrors[i]?.W??0), yMax), '#d060c0', 1);
+
+  // Scrubber cursor
+  if(debugStep >= 0 && debugStep < n){
+    const cx = tx(debugStep);
+    cctx.strokeStyle='rgba(255,255,255,0.5)'; cctx.lineWidth=dpr;
+    cctx.setLineDash([3*dpr,3*dpr]);
+    cctx.beginPath(); cctx.moveTo(cx,pad.t); cctx.lineTo(cx,pad.t+iH); cctx.stroke();
+    cctx.setLineDash([]);
+  }
+
+  // X-axis time labels
+  cctx.fillStyle='#4a5e88'; cctx.font=`${9*dpr}px 'JetBrains Mono'`;
+  const nTicks=6;
+  for(let t=0;t<=nTicks;t++){
+    const step=Math.round((n-1)*t/nTicks);
+    const Dt=params.Dt;
+    const label=(step*Dt).toFixed(1)+'s';
+    const xx=tx(step);
+    cctx.fillText(label, xx - 10*dpr, H-4*dpr);
+  }
+
+  // (click handler wired separately below drawChart)
+}
+
+function drawScaleBar(){
+  // Pick a round world length that maps to between 60 and 200 px on screen
+  const candidates = [0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10,20,50,100];
+  let worldLen = candidates[0];
+  for(const c of candidates){
+    worldLen = c;
+    if(c * viewScale * devicePixelRatio >= 60 * devicePixelRatio) break;
+  }
+  const pxLen = worldLen * viewScale * devicePixelRatio;
+  const label = worldLen >= 1 ? `${worldLen}m` : `${worldLen*100}cm`;
+
+  const margin = 14 * devicePixelRatio;
+  const x1 = canvas.width  - margin;
+  const x0 = x1 - pxLen;
+  const y  = canvas.height - margin;
+  const tick = 5 * devicePixelRatio;
+
+  ctx.strokeStyle = 'rgba(168,188,216,0.8)';
+  ctx.lineWidth   = 1.5 * devicePixelRatio;
+  ctx.beginPath();
+  ctx.moveTo(x0, y - tick); ctx.lineTo(x0, y);
+  ctx.lineTo(x1, y);
+  ctx.lineTo(x1, y - tick);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(168,188,216,0.8)';
+  ctx.font      = `${10*devicePixelRatio}px 'JetBrains Mono'`;
+  ctx.textAlign = 'center';
+  ctx.fillText(label, (x0+x1)*0.5, y - tick - 3*devicePixelRatio);
+  ctx.textAlign = 'left';
+}
+
+function drawWaypoints(){
+  const R=WPT_R*devicePixelRatio;
+  waypoints.forEach((pt,i)=>{
+    const c=w2c(pt.x,pt.y);
+    ctx.fillStyle=i===0?'#3d8ef0':i===waypoints.length-1?'#e8953a':'#4a5e88';
+    ctx.strokeStyle='#060a10'; ctx.lineWidth=1.5*devicePixelRatio;
+    ctx.beginPath(); ctx.arc(c.x,c.y,R,0,PI2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#a8bcd8';
+    ctx.font=`${10*devicePixelRatio}px 'JetBrains Mono'`;
+    ctx.fillText(i,c.x+R+2*devicePixelRatio,c.y+3*devicePixelRatio);
+  });
+}
+
+const POSE_R = 7; // pose handle grab radius in CSS px
+function drawStartPose(){
+  if(!startPose) return;
+  const c=w2c(startPose.x,startPose.y);
+  const R=POSE_R*devicePixelRatio;
+  const arrowLen=22*devicePixelRatio;
+  // Body dot
+  ctx.fillStyle='#d060c0'; ctx.strokeStyle='#060a10'; ctx.lineWidth=1.5*devicePixelRatio;
+  ctx.beginPath(); ctx.arc(c.x,c.y,R,0,PI2); ctx.fill(); ctx.stroke();
+  // Heading arrow
+  const tipX=c.x+Math.cos(startPose.heading)*arrowLen;
+  const tipY=c.y-Math.sin(startPose.heading)*arrowLen;
+  ctx.strokeStyle='#d060c0'; ctx.lineWidth=2*devicePixelRatio;
+  ctx.beginPath(); ctx.moveTo(c.x,c.y); ctx.lineTo(tipX,tipY); ctx.stroke();
+  // Arrowhead
+  const headLen=7*devicePixelRatio, headAng=0.45;
+  const ah=startPose.heading;
+  ctx.beginPath();
+  ctx.moveTo(tipX,tipY);
+  ctx.lineTo(tipX-headLen*Math.cos(ah-headAng), tipY+headLen*Math.sin(ah-headAng));
+  ctx.moveTo(tipX,tipY);
+  ctx.lineTo(tipX-headLen*Math.cos(ah+headAng), tipY+headLen*Math.sin(ah+headAng));
+  ctx.stroke();
+  // Tip hit circle (visual guide)
+  ctx.strokeStyle='rgba(208,96,192,0.3)'; ctx.lineWidth=devicePixelRatio;
+  ctx.beginPath(); ctx.arc(tipX,tipY,POSE_R*devicePixelRatio,0,PI2); ctx.stroke();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIT TESTING
+// ─────────────────────────────────────────────────────────────────────────────
+function hitTestWaypoint(cx,cy){
+  const R=(WPT_R+3)*devicePixelRatio;
+  for(let i=waypoints.length-1;i>=0;i--){
+    const c=w2c(waypoints[i].x,waypoints[i].y);
+    if(Math.hypot(cx-c.x,cy-c.y)<R) return i;
+  }
+  return -1;
+}
+function hitTestPosePos(cx,cy){
+  if(!startPose) return false;
+  const c=w2c(startPose.x,startPose.y);
+  return Math.hypot(cx-c.x,cy-c.y)<(POSE_R+4)*devicePixelRatio;
+}
+function hitTestPoseTip(cx,cy){
+  if(!startPose) return false;
+  const arrowLen=22*devicePixelRatio;
+  const tipX=w2c(startPose.x,startPose.y).x+Math.cos(startPose.heading)*arrowLen;
+  const tipY=w2c(startPose.x,startPose.y).y-Math.sin(startPose.heading)*arrowLen;
+  return Math.hypot(cx-tipX,cy-tipY)<(POSE_R+4)*devicePixelRatio;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MOUSE INTERACTION
+// ─────────────────────────────────────────────────────────────────────────────
+canvas.addEventListener('contextmenu',e=>{
+  e.preventDefault();
+  if(waypoints.length>0){ waypoints.pop(); if(waypoints.length<2) startPose=null; rebuild(); }
+});
+
+canvas.addEventListener('mousedown',e=>{
+  const rect=canvas.getBoundingClientRect();
+  const cx=(e.clientX-rect.left)*devicePixelRatio;
+  const cy=(e.clientY-rect.top)*devicePixelRatio;
+
+  // Middle mouse or space+left = pan
+  if(e.button===1||(e.button===0&&spaceDown)){
+    dragMode=DRAG_PAN;
+    dragStartCanvas={x:e.clientX,y:e.clientY};
+    panViewStart={x:viewOX,y:viewOY};
+    canvas.style.cursor='grab';
+    e.preventDefault(); return;
+  }
+  if(e.button!==0) return;
+
+  // Priority: pose tip > pose body > waypoints > add new point
+  if(hitTestPoseTip(cx,cy)){
+    dragMode=DRAG_POSE_HDG;
+    canvas.style.cursor='crosshair'; return;
+  }
+  if(hitTestPosePos(cx,cy)){
+    dragMode=DRAG_POSE_POS;
+    canvas.style.cursor='move'; return;
+  }
+  const wi=hitTestWaypoint(cx,cy);
+  if(wi>=0){
+    dragMode=DRAG_WAYPOINT; dragIdx=wi;
+    canvas.style.cursor='move'; return;
+  }
+  // Add new waypoint
+  dragMode=DRAG_NONE;
+  waypoints.push(c2w(cx,cy));
+  if(waypoints.length===2) startPose=defaultStartPose(filterPath(waypoints));
+  rebuild();
+});
+
+canvas.addEventListener('mousemove',e=>{
+  const rect=canvas.getBoundingClientRect();
+  const cx=(e.clientX-rect.left)*devicePixelRatio;
+  const cy=(e.clientY-rect.top)*devicePixelRatio;
+
+  if(dragMode===DRAG_PAN){
+    viewOX=panViewStart.x+(e.clientX-dragStartCanvas.x)*devicePixelRatio;
+    viewOY=panViewStart.y+(e.clientY-dragStartCanvas.y)*devicePixelRatio;
+    draw(); return;
+  }
+  if(dragMode===DRAG_WAYPOINT){
+    waypoints[dragIdx]=c2w(cx,cy);
+    rebuild(); return;
+  }
+  if(dragMode===DRAG_POSE_POS&&startPose){
+    const w=c2w(cx,cy);
+    startPose={...startPose,x:w.x,y:w.y};
+    rebuild(); return;
+  }
+  if(dragMode===DRAG_POSE_HDG&&startPose){
+    const w=c2w(cx,cy);
+    startPose={...startPose,heading:Math.atan2(w.y-startPose.y,w.x-startPose.x)};
+    rebuild(); return;
+  }
+
+  // Update cursor based on hover
+  if(hitTestPoseTip(cx,cy)||hitTestPosePos(cx,cy)||hitTestWaypoint(cx,cy)>=0)
+    canvas.style.cursor='move';
+  else if(spaceDown)
+    canvas.style.cursor='grab';
+  else
+    canvas.style.cursor='crosshair';
+});
+
+canvas.addEventListener('mouseup',()=>{
+  dragMode=DRAG_NONE; dragIdx=-1;
+  canvas.style.cursor=spaceDown?'grab':'crosshair';
+});
+canvas.addEventListener('mouseleave',()=>{ dragMode=DRAG_NONE; dragIdx=-1; });
+
+// Zoom
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  const cx=(e.clientX-rect.left)*devicePixelRatio;
+  const cy=(e.clientY-rect.top)*devicePixelRatio;
+  const wPre=c2w(cx,cy);
+  viewScale*=e.deltaY<0?1.12:0.90;
+  viewScale=Math.max(10,Math.min(600,viewScale));
+  const cPost=w2c(wPre.x,wPre.y);
+  viewOX+=cx-cPost.x; viewOY+=cy-cPost.y;
+  draw();
+},{passive:false});
+
+// Space to pan
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'&&!e.target.matches('input')){
+    e.preventDefault(); spaceDown=true; canvas.style.cursor='grab';
+  }
+});
+window.addEventListener('keyup',e=>{
+  if(e.code==='Space'){ spaceDown=false; canvas.style.cursor='crosshair'; }
+});
+
+window.addEventListener('resize',resize);
+
+// Toggles
+['raw','smooth','sim','error','grid'].forEach(k=>{
+  document.getElementById('tog-'+k).addEventListener('click',function(){
+    toggles[k]=!toggles[k]; this.classList.toggle('active',toggles[k]); draw();
+  });
+});
+
+// Chart click — wired once here, not inside drawChart, so it always uses
+// current canvas state rather than a stale closure.
+document.getElementById('chart-canvas').addEventListener('click', function(e){
+  const n = simErrors.length;
+  if(n < 2) return;
+  const cc   = this;
+  const rect = cc.getBoundingClientRect();
+  // rect.width is the CSS width of the canvas element.
+  // The series spans the full CSS width (pad of 4 device px ≈ negligible).
+  // Use rect.width directly so there is no dpr mismatch.
+  const frac = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+  setDebugStep(Math.round(frac * (n - 1)));
+});
+
+// Chart series toggles
+document.querySelectorAll('.chart-tog').forEach(el => {
+  el.addEventListener('click', () => {
+    const k = el.dataset.series;
+    chartToggles[k] = !chartToggles[k];
+    el.classList.toggle('active', chartToggles[k]);
+    el.style.opacity = chartToggles[k] ? '1' : '0.35';
+    drawChart();
+  });
+});
+
+// Debug scrubber
+function setDebugStep(v){
+  debugStep = parseInt(v);
+  const scrub = document.getElementById('dbg-scrubber');
+  const num   = document.getElementById('dbg-step-num');
+  scrub.value = debugStep;
+  num.value   = debugStep;
+  if(debugStep<0) document.getElementById('dbg-info').textContent='Full trace (drag scrubber to step).';
+  draw();  // draw() already calls drawChart() which redraws the cursor
+}
+document.getElementById('dbg-scrubber').addEventListener('input', e=>setDebugStep(e.target.value));
+document.getElementById('dbg-step-num').addEventListener('change', e=>setDebugStep(e.target.value));
+document.getElementById('dbg-step-num').addEventListener('keydown', e=>{ if(e.key==='Enter') setDebugStep(e.target.value); });
+
+function updateScrubberRange(){
+  const max = Math.max(0, simTrace.length-1);
+  document.getElementById('dbg-scrubber').max = max;
+  document.getElementById('dbg-step-num').max = max;
+  document.getElementById('dbg-info').textContent = simTrace.length
+    ? 'Drag scrubber or type step to inspect.' : 'Run a simulation to enable.';
+}
+
+document.getElementById('btn-clear').addEventListener('click',()=>{ waypoints=[]; startPose=null; rebuild(); });
+
+function setPreset(pts){
+  waypoints=pts.map(([x,y])=>({x,y}));
+  const xs=waypoints.map(p=>p.x), ys=waypoints.map(p=>p.y);
+  const cx=(Math.max(...xs)+Math.min(...xs))*0.5;
+  const cy=(Math.max(...ys)+Math.min(...ys))*0.5;
+  viewOX=canvas.width*0.5-cx*viewScale*devicePixelRatio;
+  viewOY=canvas.height*0.5+cy*viewScale*devicePixelRatio;
+  startPose=null; rebuild();
+}
+document.getElementById('btn-preset-s').addEventListener('click',()=>setPreset([[-4,0],[-2,0],[0,2],[2,2],[4,0],[6,0]]));
+document.getElementById('btn-preset-u').addEventListener('click',()=>setPreset([[-3,0],[-1,0],[0,0],[1,1],[1,3],[0,4],[-1,4],[-2,3],[-2,1]]));
+document.getElementById('btn-preset-zigzag').addEventListener('click',()=>setPreset([[-5,0],[-3,0],[-1,2],[1,-1],[3,2],[5,0]]));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────────────
+resize();
+setPreset([[-4,0],[-2,0],[0,2],[2,2],[4,0],[6,0]]);
+</script>
+</body>
+</html>
